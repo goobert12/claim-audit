@@ -1,0 +1,6 @@
+﻿# Reports are generated output, not source.
+reports/
+
+node_modules/
+*.log
+.DS_Store
