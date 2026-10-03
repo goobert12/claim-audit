@@ -36,7 +36,7 @@ states a quantity twice in two unit systems has already committed to a testable
 relationship:
 
 ```
-33 lbs (15.5 kg)      ->  33 lb = 14.97 kg, page states 15.5 kg  (3.4% apart)
+33 lbs (15.5 kg)      ->  33 lb = 14.9685 kg, but the page states 15.5 kg (3.4% apart)
 ```
 
 Anything a page states twice, it can be caught contradicting.
@@ -121,6 +121,6 @@ unsupported when the page does support it would be the wrong answer.
 
 ---
 
-## Licence
+## License
 
 MIT. See `LICENSE`.

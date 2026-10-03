@@ -24,5 +24,6 @@ Bending modulus - ISO 178 - X: 1980 - VALUE (unit): GPa
 Young's modulus - ISO 527 - X: 2310 - Y: 2080 - VALUE (unit): GPa
 
 This material ships as a 1 kg spool, 1.75 mm diameter, with a stated length of 327.4 m.
+Shipping weight: 33 lbs (15.5 kg) per carton.
 
 You can anneal this material at -10 C for 2h.
