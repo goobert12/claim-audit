@@ -22,7 +22,7 @@ is that stiff — diamond is roughly 1050–1200 GPa — so the number cannot be
 unit it claims. It is almost certainly **MPa** mislabelled, which is a factor of 1000:
 
 ```
-1980 GPa = 1980 GPa, which is outside 0.001-1200 GPa
+2310 GPa is outside 0.001-1200 GPa
 > No material lies outside this range (soft elastomers to diamond (1050-1200 GPa);
   no material exceeds this). The value is most likely stated in a different unit than
   the label says.

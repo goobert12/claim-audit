@@ -54,7 +54,11 @@ test('a modulus of 2310 GPa is flagged as physically impossible', () => {
   assert.equal(flags.length, 1);
   assert.equal(flags[0].kind, 'value-outside-physical-range');
   assert.equal(flags[0].property, 'youngsModulus');
-  assert.match(flags[0].arithmetic, /2310 GPa = 2310 GPa/);
+  // No conversion applies -- GPa IS the bounds unit -- so the message must state the range test.
+  // This assertion previously required "2310 GPa = 2310 GPa", a tautology, so it locked the defect
+  // in rather than catching it.
+  assert.match(flags[0].arithmetic, /2310 GPa is outside 0\.001-1200 GPa/);
+  assert.doesNotMatch(flags[0].arithmetic, /2310 GPa = 2310 GPa/);
   assert.match(flags[0].note, /different unit/);
 });
 
@@ -68,7 +72,21 @@ test('the flag carries its own arithmetic so a human can falsify it', () => {
   const [flag] = checkClaim('Bending modulus ISO 178 X-Y: 1980 GPa');
   assert.ok(flag.arithmetic.includes('1980'));
   assert.ok(flag.bounds.because.length > 10, 'the bound must explain itself');
-  assert.match(flag.arithmetic, /1980 GPa = 1980 GPa, which is outside/);
+  // No conversion applies here: the stated unit IS the bounds unit. Reading "1980 GPa = 1980 GPa"
+  // is a tautology, and this assertion used to require exactly that -- locking the defect in rather
+  // than catching it. The message must state the range test instead.
+  assert.match(flag.arithmetic, /1980 GPa is outside 0\.001-1200 GPa/);
+  assert.doesNotMatch(flag.arithmetic, /1980 GPa = 1980 GPa/);
+});
+
+test('a conversion that actually happens still shows its working', () => {
+  // MPa converts into the GPa bounds unit at x0.001 (UNIT_SCALES), so this exercises the OTHER
+  // branch of the ternary that fixed the tautology. 2,000,000 MPa -> 2000 GPa, outside 0.001-1200.
+  // My first version of this test used psi, which is not in UNIT_SCALES at all and produced no flag.
+  const [flag] = checkClaim('Tensile strength: 2000000 MPa');
+  assert.ok(flag, 'a converted value this far out of range should be flagged');
+  assert.match(flag.arithmetic, /2000000 MPa = 2000 GPa/, 'the converted value must still be shown');
+  assert.match(flag.arithmetic, /which is outside/);
 });
 
 test('genuine values across real materials are NOT flagged', () => {

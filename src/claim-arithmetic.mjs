@@ -249,7 +249,9 @@ export function checkBounds(claimText, propertyKey = propertyFor(claimText)) {
       bounds,
       claimText,
       // The arithmetic travels with the flag so a human can falsify it.
-      arithmetic: `${m.value} ${m.unit} = ${inBoundsUnit} ${bounds.unit}, which is outside ${bounds.min}-${bounds.max} ${bounds.unit}`,
+      arithmetic: inBoundsUnit === m.value
+                    ? `${m.value} ${m.unit} is outside ${bounds.min}-${bounds.max} ${bounds.unit}`
+                    : `${m.value} ${m.unit} = ${inBoundsUnit} ${bounds.unit}, which is outside ${bounds.min}-${bounds.max} ${bounds.unit}`,
       note: `No material lies outside this range (${bounds.because}). The value is most likely stated in a different unit than the label says.`,
     }];
   }
