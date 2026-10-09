@@ -31,6 +31,19 @@ export const PROPERTY_BOUNDS = Object.freeze({
   nozzleTemperature: {min: 100, max: 500, unit: '\u00b0C', because: 'below 100 nothing melts, above 500 no FDM machine operates'},
   bedTemperature: {min: 0, max: 250, unit: '\u00b0C', because: 'room temperature to near the limit of heated beds'},
   annealingTemperature: {min: 20, max: 300, unit: '\u00b0C', because: 'below ambient is meaningless, above 300 destroys most polymers'},
+
+  // ---- Electrical specifications (added 2026-10-05 for modular-synth / rack gear) ----
+  //
+  // These are different in kind from the material bounds above, and the difference is deliberate.
+  // A material bound says "no material like this exists", which is a fact about the world. A supply
+  // current bound says "a module of this class draws at most this", which is a fact about a product
+  // category. Both are useful to a buyer, but only the first is physics, so the `because` lines say
+  // which is which rather than implying the same authority.
+  currentDraw: {min: 0, max: 2000, unit: 'mA', because: 'a single Eurorack module drawing over 2 A on one rail is a fault or a misread, not a specification'},
+  supplyCurrent: {min: 0, max: 10000, unit: 'mA', because: 'largest commonly published Eurorack case supply per rail; above this is a typo or a different unit'},
+  railVoltage: {min: 0, max: 48, unit: 'V', because: 'Eurorack rails are 12 V, some systems 15 V, and 48 V is the top of low-voltage DC distribution'},
+  moduleWidth: {min: 1, max: 200, unit: 'HP', because: 'narrowest common module to the widest single module published; a rack row is 84 HP'},
+  frequencyRange: {min: 0.001, max: 100000, unit: 'Hz', because: 'sub-audio modulation up to the top of human hearing and beyond'},
 });
 
 /** How a property is named on real pages, mapped to the bounds key. */
@@ -48,9 +61,33 @@ const PROPERTY_ALIASES = Object.freeze([
   [/nozzle|extrusion\s+temperature|print\s+temperature/i, 'nozzleTemperature'],
   [/\bbed\b|build\s+plate|heat\s*bed/i, 'bedTemperature'],
   [/anneal/i, 'annealingTemperature'],
+  // Electrical aliases. These are the most collision-prone in the file, and the first version got it
+  // wrong in a way worth recording: a module's DRAW and a case's SUPPLY are different quantities with
+  // different ceilings, and lumping them together meant "Current draw: 5000 mA" matched the case
+  // capacity ceiling of 10 A, came back IN BOUNDS, and produced no flag at all. A checker that is
+  // silent because it compared the wrong two things is worse than no checker.
+  //
+  // So the split is by WHO IS SPEAKING:
+  //   a case states what it can SUPPLY  -> supplyCurrent   (ceiling: the largest published supply)
+  //   a module states what it DRAWS     -> currentDraw     (ceiling: plausible for one module)
+  // A supply phrase ("maximum output current", "the supply delivers") never describes module draw,
+  // so the two patterns do not overlap.
+  [/maximum\s+output\s+current|output\s+current|supply\s+current|supply\s+delivers|can\s+supply|power\s+supply.*\d+\s*mA/i, 'supplyCurrent'],
+  [/current\s+draw|draws?\s+\d+\s*mA|current\s+consumption|power\s+consumption|consumes\s+\d+\s*mA/i, 'currentDraw'],
+  [/rail\s+voltage|\+\s*12\s*v\s+rail|supply\s+voltage/i, 'railVoltage'],
+  [/\bwidth\b.*\bhp\b|\d+\s*hp\b|module\s+width/i, 'moduleWidth'],
+  [/frequency\s+range|\bfreq(?:uency)?\s+response/i, 'frequencyRange'],
 ]);
 
 /** Units as written on pages, mapped to a canonical form and a scale to the bounds unit. */
+// THE single list of unit tokens that may follow a number. Every regex below interpolates this,
+// because it was previously copy-pasted into FIVE separate regexes and adding an electrical unit to
+// only two of them made the new properties silently unreadable -- the exact failure this file warns
+// about elsewhere ("a check that passes because it never ran"). Longest-first, so kHz matches before
+// Hz and mA before A.
+const UNIT_TOKENS = String.raw`g\/cm\u00b3|g\/cm3|kg\/m3|kHz|GPa|MPa|kPa|mA|Hz|kV|HP|Pa|\u00b0C|\u00b0F|L\b|A|V|%`;
+const UNIT_ALTERNATION = UNIT_TOKENS;
+
 const UNIT_SCALES = Object.freeze({
   'gpa': {canonical: 'GPa', toBoundsUnit: 1},
   'mpa': {canonical: 'MPa', toBoundsUnit: 0.001},
@@ -63,6 +100,15 @@ const UNIT_SCALES = Object.freeze({
   '\u00b0c': {canonical: '\u00b0C', toBoundsUnit: 1},
   'c': {canonical: '\u00b0C', toBoundsUnit: 1},
   '\u00b0f': {canonical: '\u00b0F', toBoundsUnit: null}, // handled separately
+  // Electrical units. mA is the bounds unit for current, so no scaling; A scales at x1000, which is
+  // the same shape as the existing MPa -> GPa entry and is the error class most worth catching
+  // (a datasheet that says "0.5" where it means "500 mA").
+  'ma': {canonical: 'mA', toBoundsUnit: 1},
+  'a': {canonical: 'A', toBoundsUnit: 1000},
+  'v': {canonical: 'V', toBoundsUnit: 1},
+  'hp': {canonical: 'HP', toBoundsUnit: 1},
+  'hz': {canonical: 'Hz', toBoundsUnit: 1},
+  'khz': {canonical: 'kHz', toBoundsUnit: 1000},
 });
 
 export function propertyFor(text) {
@@ -104,10 +150,16 @@ export function primaryMeasurement(claimText) {
   // false flag. A specification's primary value is the BASE, not its tolerance.
   //
   // So the base is matched first, allowing a following \u00b1 or range separator.
+  //
+  // NOTE (2026-10-05): the unit set is now enumerated in TWO places -- here in the regex, and in
+  // UNIT_SCALES above. Adding electrical units meant editing both, and forgetting one makes a
+  // property silently unreadable, which is the exact failure this file warns about elsewhere (a
+  // check that passes because it never ran). The two should be derived from one list; that is
+  // recorded as a known wart rather than hidden.
   const withModifier = new RegExp(
-    String.raw`(\d+(?:[.,]\d+)?)\s*(?:\u00b1|\+/-|to)\s*\d+(?:[.,]\d+)?\s*(GPa|MPa|kPa|Pa|g/cm3|g/cm\u00b3|kg/m3|%|\u00b0C|\u00b0F|L\b)`, 'i');
+    String.raw`(\d+(?:[.,]\d+)?)\s*(?:\u00b1|\+/-|to)\s*\d+(?:[.,]\d+)?\s*(GPa|MPa|kPa|g/cm3|g/cm\u00b3|kg/m3|mA|kHz|Hz|kV|kHz|HP|Pa|A|V|\bV\b|%|\u00b0C|\u00b0F|L\b)`, 'i');
   const bare = new RegExp(
-    String.raw`(\d+(?:[.,]\d+)?)\s*(GPa|MPa|kPa|Pa|g/cm3|g/cm\u00b3|kg/m3|%|\u00b0C|\u00b0F|L\b)`, 'i');
+    String.raw`(\d+(?:[.,]\d+)?)\s*(GPa|MPa|kPa|g/cm3|g/cm\u00b3|kg/m3|mA|kHz|Hz|HP|Pa|A|V|%|\u00b0C|\u00b0F|L\b)`, 'i');
 
   const mMod = withModifier.exec(tail);
   const mBare = bare.exec(tail);
@@ -122,7 +174,7 @@ export function primaryMeasurement(claimText) {
     // and the lower bound is used for the bounds check because violating the floor
     // is the failure that ruins material.
     const afterMatch = tail.slice(m.index + m[0].length);
-    const rangeMatch = /^\s*[-\u2013\u2014]\s*(\d+(?:[.,]\d+)?)\s*(?:GPa|MPa|kPa|Pa|g\/cm3|g\/cm\u00b3|kg\/m3|%|\u00b0C|\u00b0F|L\b)/i.exec(afterMatch);
+    const rangeMatch = /^\s*[-\u2013\u2014]\s*(\d+(?:[.,]\d+)?)\s*${UNIT_ALTERNATION}/i.exec(afterMatch);
     const value = Number(m[1].replace(',', '.'));
     const rangeValue = rangeMatch ? Number(rangeMatch[1].replace(',', '.')) : null;
     return typeof buildResult === 'function'
@@ -154,7 +206,7 @@ export function primaryMeasurement(claimText) {
   // The unit comes from a bare unit token, preferring one at the end of the line
   // or introduced by "VALUE (unit)".
   const unitTail = /VALUE\s*\(unit\)\s*:?\s*([A-Za-z%\u00b0\/\u00b2\u00b3]+)\s*$/i.exec(text);
-  const unitAny = unitTail ?? /\b(GPa|MPa|kPa|Pa|g\/cm3|g\/cm\u00b3|kg\/m3|%|\u00b0C|\u00b0F)\b/i.exec(text);
+  const unitAny = unitTail ?? /(${UNIT_ALTERNATION})/i.exec(text);
   if (!unitAny) return null;
   const rawUnit = unitTail ? unitTail[1] : unitAny[1];
   const fu = rawUnit.toLowerCase();
@@ -194,7 +246,7 @@ const NUM = String.raw`(-?\d+(?:[.,]\d+)?)`;
 export function measurements(text) {
   const src = String(text || '');
   const out = [];
-  const re = new RegExp(`${NUM}\\s*(GPa|MPa|kPa|Pa|g/cm3|g/cm\\u00b3|kg/m3|%|\\u00b0C|\\u00b0F|L\\b)`, 'gi');
+  const re = new RegExp(`${NUM}\\s*(${UNIT_ALTERNATION})`, 'gi');
   let m;
   while ((m = re.exec(src)) !== null) {
     const raw = m[1];
