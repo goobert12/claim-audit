@@ -69,7 +69,10 @@ const gaps = Array.isArray(meta.not_captured_in_text)
 
 const inventory = buildInventory({
   pageText: body, sourceUrl: meta.url, capturedAt: meta.fetched,
-  notCaptured: gaps, capturedBy: meta.method || 'unknown',
+  // Both keys are accepted. The README documents `captured_by` and the shipped example uses it,
+  // while earlier captures used `method`; reading only one silently produced "unknown" for the
+  // other. Axiom found this in a cold read of the public repo on 2026-10-12.
+  notCaptured: gaps, capturedBy: meta.captured_by || meta.method || 'unknown',
 }, {minLength: Number(flag('--min-length', '15'))});
 
 if (!inventory.ok) {
@@ -116,14 +119,17 @@ const report = {
   findings,
 };
 
-if (asJson || flag('--out', null)) {
+// JSON goes out when asked for. A `.md` path is handled further down, where the human-readable
+// report actually exists -- the usage text advertises `--out report.md` and it previously did nothing,
+// because this block runs before the markdown lines are built. Axiom found this on 2026-10-12.
+const outPath = flag('--out', null);
+if (asJson || (outPath && outPath.endsWith('.json'))) {
   const payload = JSON.stringify(report, null, 2);
-  const out = flag('--out', null);
-  if (out && out.endsWith('.json')) {
-    writeFileSync(path.isAbsolute(out) ? out : path.join(process.cwd(), out), payload + '\n', 'utf8');
-    console.error(`wrote ${out}`);
+  if (outPath && outPath.endsWith('.json')) {
+    writeFileSync(path.isAbsolute(outPath) ? outPath : path.join(process.cwd(), outPath), payload + '\n', 'utf8');
+    console.error(`wrote ${outPath}`);
   }
-  if (asJson && !out) process.stdout.write(payload + '\n');
+  if (asJson && !outPath) process.stdout.write(payload + '\n');
 }
 
 // Human-readable report.
@@ -183,6 +189,18 @@ const reportDir = path.resolve(flag('--report-dir', outDirDefault));
 mkdirSync(reportDir, {recursive: true});
 const reportPath = path.join(reportDir, `AUDIT-${path.basename(file, '.md')}.md`);
 writeFileSync(reportPath, lines.join('\n'), 'utf8');
+
+// The advertised `--out report.md` contract. It previously did nothing, because the only `--out`
+// handling sat in the JSON block above -- which runs before these `lines` exist. Axiom found this in a
+// cold read of the public repo on 2026-10-12: the usage text promised a Markdown output path and the
+// code silently ignored it.
+const mdOut = flag('--out', null);
+if (mdOut && mdOut.endsWith('.md')) {
+  const mdPath = path.isAbsolute(mdOut) ? mdOut : path.join(process.cwd(), mdOut);
+  mkdirSync(path.dirname(mdPath), {recursive: true});
+  writeFileSync(mdPath, lines.join('\n'), 'utf8');
+  console.error(`wrote ${mdOut}`);
+}
 
 if (!asJson) {
   console.log(lines.join('\n'));

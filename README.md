@@ -91,7 +91,8 @@ src/
   spec-layout.mjs        where a value sits on the page, across table layouts
   audit-run.mjs          CLI: capture in, report out
   claim-inventory-run.mjs CLI: capture in, claim inventory out
-test/                    64 tests, no network, no fixtures beyond inline strings
+test/                    unit tests, no network, no fixtures beyond inline strings
+                         (deliberately no count here: a hardcoded number goes stale)
 examples/                a synthetic capture that triggers both check types
 ```
 
