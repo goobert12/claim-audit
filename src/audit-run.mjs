@@ -84,9 +84,20 @@ if (!inventory.ok) {
 }
 
 // 3. Physical-range checks.
+// The inventory only keeps lines whose number is followed by one of a short list of units, so a spec row such
+// as "Capacity: 1024 Wh" or "Density: 1.26 (g/cm2)" is never listed as a claim and was never range-checked.
+// checkClaim does nothing unless the line names a property it knows, so it is safe to run on every numeric
+// line, not only the inventoried ones.
 const rangeFlags = [];
-for (const claim of inventory.claims) {
-  for (const f of checkClaim(claim.text)) rangeFlags.push({...f, claimText: claim.text});
+const seenForRange = new Set();
+const rangeCandidates = [
+  ...inventory.claims.map(c => c.text),
+  ...body.split(/\r?\n/).map(l => l.trim()).filter(l => l.length >= 5 && l.length <= 400 && /\d/.test(l)),
+];
+for (const text of rangeCandidates) {
+  if (seenForRange.has(text)) continue;
+  seenForRange.add(text);
+  for (const f of checkClaim(text)) rangeFlags.push({...f, claimText: text});
 }
 
 // 4. The page's own conversions.
@@ -191,7 +202,7 @@ const reportPath = path.join(reportDir, `AUDIT-${path.basename(file, '.md')}.md`
 writeFileSync(reportPath, lines.join('\n'), 'utf8');
 
 // The advertised `--out report.md` contract. It previously did nothing, because the only `--out`
-// handling sat in the JSON block above -- which runs before these `lines` exist, so the usage text promised a Markdown output path that the
+// handling sat in the JSON block above -- which runs before these `lines` exist, so the usage text promised a Markdown output path that the
 const mdOut = flag('--out', null);
 if (mdOut && mdOut.endsWith('.md')) {
   const mdPath = path.isAbsolute(mdOut) ? mdOut : path.join(process.cwd(), mdOut);

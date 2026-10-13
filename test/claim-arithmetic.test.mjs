@@ -89,6 +89,24 @@ test('a conversion that actually happens still shows its working', () => {
   assert.match(flag.arithmetic, /which is outside/);
 });
 
+test('a density written per area is flagged, because the unit and not the number is wrong', () => {
+  // Found on a live filament page: "Density: 1.26 (g/cm2)". The value is a normal plastic density,
+  // so the bounds check was silent; the unit had dropped the cube.
+  const flags = checkClaim('Density: 1.26 (g/cm2\uff09');
+  assert.equal(flags.length, 1);
+  assert.equal(flags[0].kind, 'unit-dimension-mismatch');
+  assert.match(flags[0].arithmetic, /mass per volume, but 1\.26 is written in g\/cm2/);
+  assert.equal(checkClaim('Density 1.26 g/cm\u00b2').length, 1);
+  assert.equal(checkClaim('Density: 1250 kg/m2').length, 1);
+});
+
+test('correct densities and genuine areal densities are NOT flagged by the dimension check', () => {
+  assert.deepEqual(checkClaim('Density: 1.24 g/cm3'), []);
+  assert.deepEqual(checkClaim('Density: 1.27 g/cm\u00b3'), []);
+  assert.deepEqual(checkClaim('Areal density: 120 g/m2'), []);
+  assert.deepEqual(checkClaim('Fabric basis weight density 200 g/m2'), []);
+});
+
 test('genuine values across real materials are NOT flagged', () => {
   // False accusations are the failure mode that matters most, so the generous
   // ranges are tested against real-world values rather than assumed adequate.

@@ -362,7 +362,29 @@ export function checkStrainConsistency({strength, strengthUnit = 'MPa', modulus,
 }
 
 /** Run every applicable check over one claim's text. */
+/**
+ * A density is mass per VOLUME. A page that writes it per area ("1.26 g/cm2") has dropped the cube from
+ * g/cm3, which is a real and common typo: found on a live filament page, where the number was in range
+ * and so the bounds check said nothing. The unit, not the value, was wrong.
+ * Areal density (fabric, paper, film) is legitimately per area, so lines that say so are left alone.
+ */
+export function checkUnitDimension(claimText, property = propertyFor(claimText)) {
+  if (property !== 'density') return [];
+  const text = String(claimText || '');
+  if (/\b(?:areal|surface|basis\s+weight|grammage|gsm|per\s+area)\b/i.test(text)) return [];
+  const m = /(\d+(?:\.\d+)?)\s*[(\uff08]?\s*((?:k|m)?g)\s*\/\s*((?:c|m)?m)\s*(?:\^\s*2|\u00b2|2)(?!\d)/i.exec(text);
+  if (!m) return [];
+  const written = `${m[2]}/${m[3]}2`;
+  const likely = `${m[2]}/${m[3]}3`;
+  return [{
+    kind: 'unit-dimension-mismatch',
+    property,
+    arithmetic: `density is mass per volume, but ${m[1]} is written in ${written}, which is mass per area`,
+    note: `The unit looks like a typo for ${likely}. The number may be fine; the unit as printed does not describe a density.`,
+  }];
+}
+
 export function checkClaim(claimText) {
   const property = propertyFor(claimText);
-  return [...checkBounds(claimText, property)];
+  return [...checkBounds(claimText, property), ...checkUnitDimension(claimText, property)];
 }
