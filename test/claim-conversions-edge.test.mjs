@@ -143,3 +143,9 @@ test('inches and centimetres, millimetres and centimetres, kilograms and grams a
   assert.equal(checkConversions('9.84 inches (20 cm)').flags.length, 1);
   assert.deepEqual(checkConversions('Weight: 2.5 lb (1.13 kg)').flags, []);
 });
+
+test('a fraction of an inch is one number, not its denominator', () => {
+  assert.equal(checkConversions('Chuck Size: 1/2 in (13 mm)').flags.length, 0);
+  assert.equal(checkConversions('Pipe: 1-1/4 in (32 mm)').flags.length, 0);
+  assert.equal(checkConversions('Chuck Size: 1/2 in (30 mm)').flags.length, 1);
+});

@@ -25,6 +25,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildInventory} from './claim-inventory.mjs';
 import {checkClaim, checkEnergyConsistency, checkEnergyTriplets} from './claim-arithmetic.mjs';
+import {checkConsistency} from './claim-consistency.mjs';
 import {checkConversions} from './claim-conversions.mjs';
 import {detectLayout, extractSpecValue} from './spec-layout.mjs';
 
@@ -118,6 +119,10 @@ const findings = [
   ...conversionFlags.map(f => ({type: 'conversion-mismatch', severity: 'high', claim: f.raw, detail: f.arithmetic, note: f.note})),
   // Volts x amp-hours against the stated watt-hours, from labelled rows and from compact titles like "48V 15Ah 480Wh".
   ...[...checkEnergyConsistency(body), ...checkEnergyTriplets(body)].map(f => ({type: 'energy-arithmetic', severity: 'high', claim: f.claimText, detail: f.arithmetic, note: f.note})),
+  // Checks the page can fail against itself: reversed range, watts above volts x amps, total vs parts, volume vs box, weight vs density.
+  // Run line by line, so a number at the end of one line is never paired with a unit on the next.
+  ...[...new Map(body.split(/\r?\n/).flatMap(l => (l.length <= 400 && /\d/.test(l) ? checkConsistency(l) : []))
+      .map(f => [f.kind + f.claimText, f])).values()].map(f => ({type: 'internal-consistency', severity: 'high', claim: f.claimText, detail: f.arithmetic, note: f.note})),
 ];
 
 const report = {

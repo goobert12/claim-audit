@@ -220,3 +220,7 @@ test('every bound explains itself, so a range is never a bare unexplained number
     assert.ok(b.unit, `${key} must carry a unit`);
   }
 });
+
+test('a unit from another family is not read under the property (Pa is not W)', () => {
+  assert.equal(checkClaim('Suction Power: 2000 Pa').length, 0);
+});

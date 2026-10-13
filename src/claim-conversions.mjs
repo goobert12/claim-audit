@@ -23,6 +23,12 @@ const CONVERSIONS = Object.freeze({
   kgPerLb: 0.45359237,
   cmPerIn: 2.54,
   mmPerCm: 10,
+  gPerOz: 28.349523125,
+  barPerPsi: 0.0689475729,
+  kmPerMi: 1.609344,
+  lPerGalUs: 3.785411784,
+  lPerGalUk: 4.54609,
+  mPerFt: 0.3048,
   nmPerInLb: 0.112984829,
 });
 
@@ -134,6 +140,26 @@ export function conversionPairs(text) {
     });
   }
 
+  // Everyday pairs: ounces/grams, psi/bar, miles/km, gallons/litres, feet/metres, mph/kmh, as "A unit (B unit)" or "A unit / B unit",
+  // in either order. A planted-error test showed all of these kinds going unchecked.
+  const EVERYDAY = [
+    ['oz', 'ounces?|oz', 'g', 'grams?|g'],
+    ['psi', 'psi', 'bar', 'bar'],
+    ['mi', 'miles?|mi', 'km', 'kilomet(?:er|re)s?|km'],
+    ['gal', 'gal(?:lons?)?', 'l', 'lit(?:er|re)s?|l'],
+    ['ft', 'feet|foot|ft', 'm', 'met(?:er|re)s?|m'],
+    ['mph', 'mph', 'kmh', 'km/h|kph|kmh'],
+  ];
+  for (const [uA, reA, uB, reB] of EVERYDAY) {
+    for (const [fromU, fromRe, toU, toRe] of [[uA, reA, uB, reB], [uB, reB, uA, reA]]) {
+      // (?<!lb...) : "4 lb 10.4 oz (2110 g)" is a compound weight handled above; its ounces are not a stand-alone figure.
+      const re = new RegExp(String.raw`(?<![\d.,/])(?<!(?:lbs?|pounds?)\.?\s*)(\d+(?:\.\d+)?)\s*(?:${fromRe})\.?(?![A-Za-z])\s*(?:\(|/|=)\s*(\d+(?:\.\d+)?)\s*(?:${toRe})(?![A-Za-z])\)?`, 'gi');
+      while ((m = re.exec(src)) !== null) {
+        pairs.push({kind: 'everyday', stated: Number(m[1]), fromUnit: fromU, statedOther: Number(m[2]), toUnit: toU, raw: m[0]});
+      }
+    }
+  }
+
   // Weight: "31.5 lbs. (14.3 kg)".
   const weight = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)\.?\s*\((\d+(?:\.\d+)?)\s*(kg|g)\)/gi;
   while ((m = weight.exec(src)) !== null) {
@@ -146,11 +172,13 @@ export function conversionPairs(text) {
   }
 
   // Plain length: "9.84 inches (25 cm)".
-  const len = /(\d+(?:\.\d+)?)\s*(in(?:ches)?|mm|cm)\s*\((\d+(?:\.\d+)?)\s*(mm|cm|in(?:ches)?)\)/gi;
+  // A fraction is one number: "1/2 in (13 mm)" and "1-1/4 in (32 mm)" were read as "2 in" and "4 in" and flagged as false alarms.
+  const fracVal = s => { const f = /^(?:(\d+)[- ])?(\d+)\/(\d+)$/.exec(s); return f ? Number(f[1] || 0) + Number(f[2]) / Number(f[3]) : Number(s); };
+  const len = /(?<![\d.\/])((?:\d+[- ])?\d+\/\d+|\d+(?:\.\d+)?)\s*(in(?:ches)?|mm|cm)\s*\((\d+(?:\.\d+)?)\s*(mm|cm|in(?:ches)?)\)/gi;
   while ((m = len.exec(src)) !== null) {
     pairs.push({
       kind: 'length',
-      stated: Number(m[1]), fromUnit: m[2].toLowerCase().replace('inches', 'in'),
+      stated: fracVal(m[1]), fromUnit: m[2].toLowerCase().replace('inches', 'in'),
       statedOther: Number(m[3]), toUnit: m[4].toLowerCase().replace('inches', 'in'),
       raw: m[0],
     });
@@ -176,6 +204,18 @@ export function convert(value, fromUnit, toUnit) {
   if (f === 'cm' && t === 'in') return value / CONVERSIONS.cmPerIn;
   if (f === 'cm' && t === 'mm') return value * CONVERSIONS.mmPerCm;
   if (f === 'mm' && t === 'cm') return value / CONVERSIONS.mmPerCm;
+  if (f === 'oz' && t === 'g') return value * CONVERSIONS.gPerOz;
+  if (f === 'g' && t === 'oz') return value / CONVERSIONS.gPerOz;
+  if (f === 'psi' && t === 'bar') return value * CONVERSIONS.barPerPsi;
+  if (f === 'bar' && t === 'psi') return value / CONVERSIONS.barPerPsi;
+  if (f === 'mi' && t === 'km') return value * CONVERSIONS.kmPerMi;
+  if (f === 'km' && t === 'mi') return value / CONVERSIONS.kmPerMi;
+  if (f === 'gal' && t === 'l') return value * CONVERSIONS.lPerGalUs;
+  if (f === 'l' && t === 'gal') return value / CONVERSIONS.lPerGalUs;
+  if (f === 'ft' && t === 'm') return value * CONVERSIONS.mPerFt;
+  if (f === 'm' && t === 'ft') return value / CONVERSIONS.mPerFt;
+  if (f === 'mph' && t === 'kmh') return value * CONVERSIONS.kmPerMi;
+  if (f === 'kmh' && t === 'mph') return value / CONVERSIONS.kmPerMi;
   if (f === 'kg' && t === 'g') return value * 1000;
   if (f === 'g' && t === 'kg') return value / 1000;
   if (f === 'in-lb' && t === 'n-m') return value * CONVERSIONS.nmPerInLb;
@@ -207,7 +247,12 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       const exp = Array.isArray(expected) ? expected : convert(a, pair.fromUnit, pair.toUnit);
       if (exp === null || !Number.isFinite(exp)) continue;
       const scale = Math.max(Math.abs(exp), Math.abs(b), 1e-9);
-      const relError = Math.abs(exp - b) / scale;
+      let relError = Math.abs(exp - b) / scale;
+      // "gallon" is ambiguous (US 3.785 L, UK 4.546 L); a page is right if it matches either, so only flag when it matches neither.
+      if (pair.fromUnit === 'gal' || pair.toUnit === 'gal') {
+        const ukExp = pair.fromUnit === 'gal' ? a * CONVERSIONS.lPerGalUk : a / CONVERSIONS.lPerGalUk;
+        relError = Math.min(relError, Math.abs(ukExp - b) / Math.max(Math.abs(ukExp), Math.abs(b), 1e-9));
+      }
       const record = {
         kind: 'unit-conversion',
         conversionKind: pair.kind,
@@ -228,7 +273,7 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       // the tool could finally convert pounds to grams.
       const decimalsOf = x => Math.min(6, (String(x).split('.')[1] || '').length);
       // A figure that is exactly zero has no relative precision, so it contributes no allowance (dividing by a near-zero
-      // made the allowance huge and let "0 C (50 F)" pass: 0 C is 32 F). Found 2026-10-13 by a free model reading this code.
+      // made the allowance huge and let "0 C (50 F)" pass: 0 C is 32 F). Found 2026-10-13 in a code review.
       const sideAllowance = x => (x === 0 ? 0 : 0.5 * 10 ** -decimalsOf(x) / Math.abs(x));
       const roundingAllowance = Math.max(sideAllowance(a), sideAllowance(b));
       if (relError > Math.max(tolerance, roundingAllowance) && !roundingGap) {

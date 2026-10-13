@@ -87,6 +87,7 @@ const UNIT_FAMILIES = Object.freeze({
   'g/cm3': 'density', 'g/cm\u00b3': 'density', 'kg/m3': 'density',
   'ma': 'current', 'a': 'current', 'v': 'voltage', 'kv': 'voltage',
   'hz': 'frequency', 'khz': 'frequency', 'hp': 'width', '%': 'percent', 'l': 'volume',
+  'w': 'power', 'kw': 'power', 'wh': 'energy', 'kwh': 'energy',
 });
 function unitFamily(u) { return UNIT_FAMILIES[String(u || '').toLowerCase()] || null; }
 
@@ -438,7 +439,11 @@ export function checkEnergyTriplets(pageText, {tolerance = 0.08} = {}) {
     const key = m[0].replace(/\s+/g, ' ');
     if (seen.has(key)) continue;
     seen.add(key);
-    const derived = v * ah;
+    // "4 x 12 V 100 Ah (4800 Wh total)": a pack count in front multiplies the energy. The stated figure may be per unit or the
+    // total, so it is accepted if it matches either.
+    const count = /(\d+)\s*[x×]\s*$/i.exec(String(pageText).slice(Math.max(0, m.index - 12), m.index));
+    const single = v * ah;
+    const derived = count && Number(count[1]) > 1 && Math.abs(single * Number(count[1]) - wh) < Math.abs(single - wh) ? single * Number(count[1]) : single;
     if (!Number.isFinite(derived) || wh <= 0) continue;
     const rel = Math.abs(derived - wh) / wh;
     if (rel <= tolerance) continue;
