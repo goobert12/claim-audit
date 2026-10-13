@@ -230,7 +230,7 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
           ...record,
           flagKind: 'conversion-mismatch',
           arithmetic: `${pair.display ?? `${a} ${pair.fromUnit}`} = ${round(exp, 4)} ${pair.toUnit}, but the page states ${b} ${pair.toUnit} (${(relError * 100).toFixed(1)}% apart)`,
-          note: 'The page states this quantity in two unit systems and they disagree. One of the two figures is wrong; both being rounded is not enough to explain this gap.',
+          note: 'The page states this quantity in two unit systems and they disagree by more than rounding to the last written digit explains. One of the two figures is off, unless one of them was truncated instead of rounded (1.77 written as 1.7), so check which before treating it as an error.',
         });
       }
     }
