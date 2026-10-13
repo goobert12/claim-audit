@@ -216,3 +216,13 @@ test('a weight row about a thousand times off its sibling weight rows is flagged
   assert.equal(checkWeightOutliers(['Weight: 3.2 kg', 'Trail Weight: 3.0 kg']).length, 0, 'too few rows to compare');
   assert.equal(checkWeightOutliers(['Weight: 3.2 kg', 'Trail Weight: 3.0 kg', 'Stakes weight: 5 g', 'Packed Weight: 3.6 kg']).length, 0, 'stakes are excluded');
 });
+
+test('BTU/h to watts, quarts to litres (US or UK) and square feet to square metres are checked', () => {
+  assert.equal(checkConversions('Electric kettle: 2200 W (7507 BTU/h)').flags.length, 0, '2200 W is 7507 BTU/h');
+  assert.equal(checkConversions('Slow cooker: 320 W (2000 BTU/h)').flags.length, 1);
+  assert.equal(checkConversions('Capacity: 1.7 L (1.8 qt)').flags.length, 0, 'US quart');
+  assert.equal(checkConversions('Capacity: 1.7 L (1.5 qt)').flags.length, 0, 'UK quart');
+  assert.equal(checkConversions('Capacity: 1.7 L (2.3 qt)').flags.length, 1);
+  assert.equal(checkConversions('Covers 60 m2 (646 sq ft)').flags.length, 0);
+  assert.equal(checkConversions('Covers 60 m2 (700 sq ft)').flags.length, 1);
+});

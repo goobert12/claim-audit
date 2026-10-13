@@ -169,6 +169,9 @@ export function conversionPairs(text) {
     ['gal', 'gal(?:lons?)?', 'l', 'lit(?:er|re)s?|l'],
     ['ft', 'feet|foot|ft', 'm', 'met(?:er|re)s?|m'],
     ['mph', 'mph', 'kmh', 'km/h|kph|kmh'],
+    ['btu', 'btu(?:/h(?:r|our)?|\\s*per\\s*hour)?', 'w', 'watts?|w'],
+    ['qt', 'qts?|quarts?', 'l', 'lit(?:er|re)s?|l'],
+    ['sqft', 'sq\\.?\\s?ft|square\\s+(?:feet|foot)|ft2|ft²', 'sqm', 'sq\\.?\\s?m|square\\s+met(?:er|re)s?|m2|m²'],
     ['kg', 'kilograms?|kg', 'g', 'grams?|g'],
     ['l', 'lit(?:er|re)s?|l', 'ml', 'milli(?:lit(?:er|re))s?|ml'],
     ['l', 'lit(?:er|re)s?|l', 'floz', 'fl\\.?\\s?oz|fluid\\s+ounces?'],
@@ -231,6 +234,12 @@ export function convert(value, fromUnit, toUnit) {
   if (f === 'cm' && t === 'in') return value / CONVERSIONS.cmPerIn;
   if (f === 'cm' && t === 'mm') return value * CONVERSIONS.mmPerCm;
   if (f === 'mm' && t === 'cm') return value / CONVERSIONS.mmPerCm;
+  if (f === 'btu' && t === 'w') return value * 0.29307107;
+  if (f === 'w' && t === 'btu') return value / 0.29307107;
+  if (f === 'qt' && t === 'l') return value * 0.946352946;
+  if (f === 'l' && t === 'qt') return value / 0.946352946;
+  if (f === 'sqft' && t === 'sqm') return value * 0.09290304;
+  if (f === 'sqm' && t === 'sqft') return value / 0.09290304;
   if (f === 'l' && t === 'ml') return value * 1000;
   if (f === 'ml' && t === 'l') return value / 1000;
   if (f === 'l' && t === 'floz') return value * 1000 / CONVERSIONS.mlPerFlOz;
@@ -282,8 +291,9 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       const scale = Math.max(Math.abs(exp), Math.abs(b), 1e-9);
       let relError = Math.abs(exp - b) / scale;
       // "gallon" is ambiguous (US 3.785 L, UK 4.546 L); a page is right if it matches either, so only flag when it matches neither.
-      if (pair.fromUnit === 'gal' || pair.toUnit === 'gal') {
-        const ukExp = pair.fromUnit === 'gal' ? a * CONVERSIONS.lPerGalUk : a / CONVERSIONS.lPerGalUk;
+      if (pair.fromUnit === 'gal' || pair.toUnit === 'gal' || pair.fromUnit === 'qt' || pair.toUnit === 'qt') {
+        const ukPer = (pair.fromUnit === 'qt' || pair.toUnit === 'qt') ? CONVERSIONS.lPerGalUk / 4 : CONVERSIONS.lPerGalUk;
+        const ukExp = (pair.fromUnit === 'gal' || pair.fromUnit === 'qt') ? a * ukPer : a / ukPer;
         relError = Math.min(relError, Math.abs(ukExp - b) / Math.max(Math.abs(ukExp), Math.abs(b), 1e-9));
       }
       const record = {
