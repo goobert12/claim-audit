@@ -149,3 +149,11 @@ test('a fraction of an inch is one number, not its denominator', () => {
   assert.equal(checkConversions('Pipe: 1-1/4 in (32 mm)').flags.length, 0);
   assert.equal(checkConversions('Chuck Size: 1/2 in (30 mm)').flags.length, 1);
 });
+
+test('whole-degree temperatures: a gap that rounding of both figures explains is not flagged, a larger one is', () => {
+  // A true -9.6 C prints as -10 C and as 15 F, so -10 C beside 15 F is consistent.
+  assert.deepEqual(checkConversions('Charge Temperature -10\u00b0C~45\u00b0C / 15\u00b0F-113\u00b0F').flags, []);
+  assert.equal(checkConversions('Charge Temperature -10\u00b0C~45\u00b0C / 17\u00b0F-113\u00b0F').flags.length, 1);
+  assert.equal(checkConversions('Operating temperature: 20\u00b0C (70\u00b0F)').flags.length, 1);
+  assert.equal(checkConversions('Operating temperature: 20\u00b0C (69\u00b0F)').flags.length, 0);
+});

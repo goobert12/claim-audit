@@ -185,10 +185,13 @@ lines.push(`- **Claims inventoried:** ${report.claimsFound}`);
 lines.push(`- **Two-unit conversions recomputed:** ${report.conversionsChecked}`);
 lines.push(`- **Specification rows read:** ${report.specRowsRead}`);
 lines.push('');
-if (conversionsChecked.length) {
+// Only the pairs that did NOT get flagged agree; the flagged ones are findings and must not be listed as agreeing.
+const flaggedKeys = new Set(conversionFlags.map(f => `${f.raw}|${f.stated}|${f.statedOther}`));
+const agreeing = conversionsChecked.filter(c => !flaggedKeys.has(`${c.raw}|${c.stated}|${c.statedOther}`));
+if (agreeing.length) {
   lines.push('Every conversion the page states about itself was recomputed, and these agree:');
   lines.push('');
-  for (const c of conversionsChecked.slice(0, 20)) {
+  for (const c of agreeing.slice(0, 20)) {
     lines.push(`- ${c.stated} ${c.fromUnit} = ${c.expected} ${c.toUnit}  (page states ${c.statedOther})`);
   }
   lines.push('');

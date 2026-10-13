@@ -10,21 +10,44 @@
 const NUM = String.raw`\d+(?:\.\d+)?`;
 const RANGE_UNIT = String.raw`(?:°\s?[CF]|\bdeg\s?[CF]\b|(?<=\s)[CF](?![A-Za-z])|V(?![A-Za-z])|A(?![A-Za-z])|W(?![A-Za-z])|Hz|kHz|MHz|mm|cm|in(?![A-Za-z])|kg|lbs?|g(?![A-Za-z])|%|psi|bar|L(?![A-Za-z])|mAh|Ah|Wh)`;
 
+const SCALES = {
+  hz: ['frequency', 1], khz: ['frequency', 1e3], mhz: ['frequency', 1e6],
+  mah: ['charge', 1e-3], ah: ['charge', 1],
+  mm: ['length', 1], cm: ['length', 10], in: ['length', 25.4],
+  g: ['mass', 1], kg: ['mass', 1000], lb: ['mass', 453.59237], lbs: ['mass', 453.59237],
+};
+function unitScale(raw) {
+  const u = String(raw).toLowerCase().replace(/\s+/g, '').replace('deg', '°');
+  if (u === '°c' || u === 'c') return {family: 'temperature', unit: 'c', scale: 1};
+  if (u === '°f' || u === 'f') return {family: 'temperature', unit: 'f', scale: 1};
+  return SCALES[u] ? {family: SCALES[u][0], unit: u, scale: SCALES[u][1]} : {family: u, unit: u, scale: 1};
+}
+
 /** A range written high-to-low ("220-110 V", "12 to 5 V", "55 to -20 C") reads as a typo for low-to-high. */
 export function checkRangeOrder(text) {
   const flags = [];
-  // The first figure may carry its own unit only before "to" ("55 C to -20 C"); before a hyphen it would be a subtraction ("10 V - 3 V").
-  const re = new RegExp(String.raw`(?<![\w.,/\-])(-?${NUM})\s*(?:(?:${RANGE_UNIT})\s*to\b|[-–—]|\bto\b)\s*(-?${NUM})(?![\d./])\s*(${RANGE_UNIT})`, 'gi');
+  // The first figure may carry its own unit before "to" or an en/em dash ("50 Hz to 20 kHz", "55 C to -20 C"); before a plain hyphen it
+  // would be a subtraction ("10 V - 3 V"), so that form is only read when the unit is written once, after the second figure.
+  const re = new RegExp(String.raw`(?<![\w.,/\-])(?<lo>-?${NUM})\s*(?:(?<u1>${RANGE_UNIT})\s*(?:to\b|[–—])|[-–—]|\bto\b)\s*(?<hi>-?${NUM})(?![\d./])\s*(?<u2>${RANGE_UNIT})`, 'gi');
   let m;
   while ((m = re.exec(String(text || ''))) !== null) {
-    const lo = Number(m[1]), hi = Number(m[2]);
-    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo <= hi) continue;
+    let lo = Number(m.groups.lo), hi = Number(m.groups.hi);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue;
+    // The two ends may be written in different-sized units of one family ("50 Hz to 20 kHz", "500 g to 1 kg"): compare in a common unit.
+    // Found on a real product page: the raw numbers 50 and 20 read as "high to low". Different families, or two temperature scales,
+    // are not comparable, so those are left alone.
+    if (m.groups.u1) {
+      const a = unitScale(m.groups.u1), b = unitScale(m.groups.u2);
+      if (!a || !b || a.family !== b.family || (a.family === 'temperature' && a.unit !== b.unit)) continue;
+      lo *= a.scale; hi *= b.scale;
+    }
+    if (lo <= hi) continue;
     // "24V to 12V" with volts on both sides names a conversion (a step-down converter), not a range.
     if (/\d\s*V\s*to\b/i.test(m[0])) continue;
     flags.push({
       kind: 'reversed-range',
       claimText: m[0],
-      arithmetic: `${m[1]} to ${m[2]} ${m[3]} runs high to low`,
+      arithmetic: `${m.groups.lo} to ${m.groups.hi} ${m.groups.u2} runs high to low`,
       note: 'A range is normally written low to high. This is probably a transposed figure; either end could be the wrong one.',
       relativeError: (lo - hi) / Math.max(Math.abs(lo), 1e-9),
     });
@@ -92,7 +115,11 @@ export function checkSumOfParts(text, {tolerance = 0.02} = {}) {
     // Not inside a word or code ("Aurora Gold(D9A63A+9675CD)" is a colour code, not 63 A + 9675).
     const expr = new RegExp(String.raw`(?<![\w#])((?:${NUM})(?:\s*${UNIT})?(?:\s*\+\s*(?:${NUM})(?:\s*${UNIT})?)+)\s*${UNIT}?(?![\w])`, 'i').exec(line);
     if (!expr) continue;
-    const parts = [...expr[1].matchAll(new RegExp(NUM, 'g'))].map(x => Number(x[0]));
+    // A leading count ("2 x 50 W + 100 W (200 W total)") or mixed ratings ("20 W + 20 W RMS, 50 W peak") make a plain sum the
+    // wrong comparison. Both were false alarms in an independent review.
+    if (/(?:\d\s*[x×]\s*)$/i.test(line.slice(0, expr.index)) || /[x×]/i.test(expr[0]) ||
+        /\b(?:peak|max|maximum|rms|rated|continuous|surge|program|music)\b/i.test(line)) continue;
+    const parts =[...expr[1].matchAll(new RegExp(NUM, 'g'))].map(x => Number(x[0]));
     if (parts.length < 2) continue;
     const unit = (expr[1].match(new RegExp(UNIT, 'i')) || expr[0].match(new RegExp(UNIT + '\\s*$', 'i')) || [])[1];
     if (!unit) continue;

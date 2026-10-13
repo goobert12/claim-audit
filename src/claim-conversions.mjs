@@ -266,7 +266,15 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       // A temperature near zero makes a relative tolerance meaningless: 15 F is -9.44 C, so a page that rounds
       // it to -9 C is correct, yet that is a 4.7% 'error'. A rounded whole-degree figure is within half a degree
       // of the exact conversion, so for temperatures the gap must also exceed that before it is a real mismatch.
-      const roundingGap = (pair.kind === 'temperature-range' || pair.kind === 'temperature') ? Math.abs(exp - b) <= 0.55 : false;
+      // Both figures are rounded: the target side is within half a degree, and the source side's own half-degree rounding is
+      // 0.9 F wide when the source is Celsius (0.28 C when it is Fahrenheit). "-10 C (15 F)" is consistent with a true -9.6 C,
+      // so a gap up to the sum of the two roundings is not an error.
+      const tempSlack = 0.5 + 0.5 * (pair.fromUnit === 'C' ? 1.8 : 5 / 9) + 0.05;
+      const roundingGap = (pair.kind === 'temperature-range' || pair.kind === 'temperature') ? Math.abs(exp - b) <= tempSlack : false;
+      // A round nominal figure (200 bar, 500 km, 200 L) beside an exact imperial one is marketing rounding, not a defect: allow 6%
+      // for the everyday pairs. (3000 psi = 206.8 bar, written "200 bar", was flagged at 3.3%.)
+      const isNominal = n => n >= 50 && n % 50 === 0;
+      const nominalOk = pair.kind === 'everyday' && (isNominal(a) || isNominal(b)) && relError <= 0.06;
       // A figure can only be as precise as it is written: "1.5 lbs" means 1.45 to 1.55, so "(700 g)" (1.54 lb) is
       // consistent with it, yet a flat 2% tolerance called it 2.8% apart. The allowance is half a unit in the last
       // written digit of EITHER figure, as a fraction of that figure. Found 2026-10-13 on a real sleeping bag page, once
@@ -276,7 +284,7 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       // made the allowance huge and let "0 C (50 F)" pass: 0 C is 32 F). Found 2026-10-13 in a code review.
       const sideAllowance = x => (x === 0 ? 0 : 0.5 * 10 ** -decimalsOf(x) / Math.abs(x));
       const roundingAllowance = Math.max(sideAllowance(a), sideAllowance(b));
-      if (relError > Math.max(tolerance, roundingAllowance) && !roundingGap) {
+      if (relError > Math.max(tolerance, roundingAllowance) && !roundingGap && !nominalOk) {
         flags.push({
           ...record,
           flagKind: 'conversion-mismatch',

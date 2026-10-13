@@ -112,3 +112,33 @@ test('a reversed range with a bare F or C is flagged', () => {
   assert.equal(checkConsistency('Charge Temperature: 113-32 F (45-0 C)').length >= 1, true);
   assert.equal(checkConsistency('Charge Temperature: 32-113 F (0-45 C)').length, 0);
 });
+
+// ---- false alarms found by an independent review of the checker, 2026-10-13 (exact lines) -------------------
+
+test('ranges whose ends use different-sized units of one family are compared in a common unit', () => {
+  for (const ok of ['Frequency response: 80 Hz to 16 kHz', 'Capacity: 5000 mAh to 10 Ah', 'Length: 200 mm to 30 cm', 'Weight: 500 g to 1 kg',
+                    'Battery: 1000 mAh to 2 Ah', 'Its frequency response extends from 50 Hz to 20 kHz at -10 dB', 'Frequency Response: 60 Hz – 20 kHz']) {
+    assert.equal(checkRangeOrder(ok).length, 0, `false alarm: ${ok}`);
+  }
+  // still caught when the converted ends really are reversed
+  assert.equal(checkRangeOrder('Frequency response: 20 kHz to 50 Hz').length, 1);
+  assert.equal(checkRangeOrder('Capacity: 10 Ah to 5000 mAh').length, 1);
+  assert.equal(checkRangeOrder('Weight: 2 kg to 500 g').length, 1);
+});
+
+test('a leading count, or mixed ratings, make a plain sum the wrong comparison', () => {
+  assert.equal(checkSumOfParts('Output power: 2 x 50 W + 100 W (200 W total)').length, 0);
+  assert.equal(checkSumOfParts('Speakers: 20 W + 20 W (RMS), 50 W peak').length, 0);
+  assert.equal(checkSumOfParts('Shipping weight: 14.2 lbs. Contents: 5.0 lbs + 2.8 lbs + 3.5 lbs').length, 1, 'a plain wrong total is still caught');
+});
+
+test('a round nominal figure beside an exact imperial one is marketing rounding, not a finding', () => {
+  for (const ok of ['Pressure: 3000 PSI (200 bar)', 'Range: 300 miles (500 km)', 'Fuel: 50 gal (200 L)']) {
+    assert.equal(checkConversions(ok).flags.length, 0, `false alarm: ${ok}`);
+  }
+  // but a large gap on a round figure is still caught, and so is a gap on a non-round one
+  assert.equal(checkConversions('Range: 250 miles (450 km)').flags.length, 1);
+  assert.equal(checkConversions('Pressure: 3000 PSI (230 bar)').flags.length, 1);
+  assert.equal(checkConversions('Range: 301 miles (500 km)').flags.length, 0, 'within 6% on a nominal side');
+  assert.equal(checkConversions('Range: 123 miles (260 km)').flags.length, 1, '123 mi is 198 km: neither side is nominal and the gap is large');
+});
