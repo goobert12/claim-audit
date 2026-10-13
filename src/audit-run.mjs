@@ -24,7 +24,7 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildInventory} from './claim-inventory.mjs';
-import {checkClaim} from './claim-arithmetic.mjs';
+import {checkClaim, checkEnergyConsistency, checkEnergyTriplets} from './claim-arithmetic.mjs';
 import {checkConversions} from './claim-conversions.mjs';
 import {detectLayout, extractSpecValue} from './spec-layout.mjs';
 
@@ -116,6 +116,8 @@ for (const line of body.split(/\r?\n/)) {
 const findings = [
   ...rangeFlags.map(f => ({type: 'physical-range', severity: 'high', claim: f.claimText, detail: f.arithmetic, note: f.note})),
   ...conversionFlags.map(f => ({type: 'conversion-mismatch', severity: 'high', claim: f.raw, detail: f.arithmetic, note: f.note})),
+  // Volts x amp-hours against the stated watt-hours, from labelled rows and from compact titles like "48V 15Ah 480Wh".
+  ...[...checkEnergyConsistency(body), ...checkEnergyTriplets(body)].map(f => ({type: 'energy-arithmetic', severity: 'high', claim: f.claimText, detail: f.arithmetic, note: f.note})),
 ];
 
 const report = {

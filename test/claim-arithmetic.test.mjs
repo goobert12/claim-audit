@@ -107,6 +107,21 @@ test('correct densities and genuine areal densities are NOT flagged by the dimen
   assert.deepEqual(checkClaim('Fabric basis weight density 200 g/m2'), []);
 });
 
+test('volts x amp-hours is checked against stated watt-hours, in labelled rows and in compact titles', async () => {
+  const {checkEnergyConsistency, checkEnergyTriplets} = await import('../src/claim-arithmetic.mjs');
+  // A real mismatch: 48 V x 15 Ah is 720 Wh, not 480.
+  assert.equal(checkEnergyTriplets('E-Bike Battery 48V 15Ah 480Wh downtube').length, 1);
+  assert.match(checkEnergyTriplets('48V 15Ah 480Wh')[0].arithmetic, /48 V x 15 Ah = 720 Wh, but the title states 480 Wh/);
+  assert.equal(checkEnergyConsistency('Nominal Voltage: 48V\nNominal Capacity: 15Ah\nBattery Energy: Approximately 480Wh').length, 1);
+  // Normal naming must NOT be flagged: LiFePO4 packs sold as 12V/24V/48V are really 12.8/25.6/51.2 V (6.7% higher).
+  for (const ok of ['12V 100Ah 1280Wh', '24V 100Ah 2560Wh', '48V 50Ah 2560Wh', '48V 11.6Ah 556.8Wh', '3.7V 20000mAh 74Wh']) {
+    assert.deepEqual(checkEnergyTriplets(ok), [], ok);
+  }
+  // Ambiguity is left unchecked: two nominal voltages, or a charge voltage, never produce a flag.
+  assert.deepEqual(checkEnergyConsistency('Nominal Voltage: 12.8V\nNominal Voltage: 25.6V\nNominal Capacity: 100Ah\nEnergy: 1280Wh'), []);
+  assert.deepEqual(checkEnergyConsistency('Nominal Voltage: 12.8V\nCharge Voltage: 14.6V\nNominal Capacity: 100Ah\nEnergy: 1280Wh'), []);
+});
+
 test('genuine values across real materials are NOT flagged', () => {
   // False accusations are the failure mode that matters most, so the generous
   // ranges are tested against real-world values rather than assumed adequate.

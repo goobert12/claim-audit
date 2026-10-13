@@ -388,3 +388,79 @@ export function checkClaim(claimText) {
   const property = propertyFor(claimText);
   return [...checkBounds(claimText, property), ...checkUnitDimension(claimText, property)];
 }
+
+/**
+ * The compact form battery titles use: "48V 11.6Ah 556.8Wh". Volts, amp-hours and watt-hours sit side by side, so the
+ * three are bound to each other unambiguously and no "exactly one of each on the page" rule is needed. Each triplet is
+ * checked on its own. Added 2026-10-13.
+ */
+export function checkEnergyTriplets(pageText, {tolerance = 0.08} = {}) {
+  const out = [];
+  const re = /(\d+(?:\.\d+)?)\s*V\b[^\d\n]{0,14}(\d+(?:\.\d+)?)\s*(Ah|mAh)\b[^\d\n]{0,14}(\d+(?:\.\d+)?)\s*Wh\b/gi;
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(String(pageText || ''))) !== null) {
+    const v = Number(m[1]);
+    const ah = m[3].toLowerCase() === 'mah' ? Number(m[2]) / 1000 : Number(m[2]);
+    const wh = Number(m[4]);
+    const key = m[0].replace(/\s+/g, ' ');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const derived = v * ah;
+    if (!Number.isFinite(derived) || wh <= 0) continue;
+    const rel = Math.abs(derived - wh) / wh;
+    if (rel <= tolerance) continue;
+    out.push({
+      kind: 'energy-arithmetic-mismatch',
+      stated: wh, derived: Number(derived.toFixed(2)), relativeError: Number(rel.toFixed(4)),
+      claimText: m[0].replace(/\s+/g, ' '),
+      arithmetic: `${v} V x ${ah} Ah = ${Number(derived.toFixed(2))} Wh, but the title states ${wh} Wh (${(rel * 100).toFixed(1)}% apart)`,
+      note: 'Volts times amp-hours should equal the stated watt-hours. One of the three figures in this string is wrong.',
+    });
+  }
+  return out;
+}
+
+/**
+ * Cross-field arithmetic for a battery page: nominal volts x amp-hours should equal the stated watt-hours.
+ *
+ * "48V 15Ah" is 720 Wh. A page that says 480 Wh next to it has two figures that cannot both be right, which is the
+ * kind of contradiction this tool exists to find. It is also the easiest check to get WRONG, because a page can carry
+ * several variants (12V and 24V, 50Ah and 100Ah) or several voltages (nominal, charge, cut-off). So it is deliberately
+ * narrow: it speaks only when the page states exactly ONE nominal voltage, ONE capacity and ONE energy in labelled
+ * rows, and it ignores any voltage row that is a charge, cut-off, maximum, input, output or open-circuit figure.
+ * Anything ambiguous is left unchecked rather than guessed at. Added 2026-10-13.
+ */
+export function checkEnergyConsistency(pageText, {tolerance = 0.08} = {}) {
+  const text = String(pageText || '');
+  const volts = new Set(), amps = new Set(), watts = new Set();
+  const seen = {volt: '', amp: '', watt: ''};
+  const num = String.raw`(\d+(?:\.\d+)?)`;
+  // Only rows labelled nominal or rated count for voltage, so a charge, cut-off or maximum voltage can never be
+  // mistaken for the pack voltage. Real pages sometimes flatten a whole table row onto one line, so these are scanned
+  // anywhere in a line rather than anchored to its start.
+  const voltRe = new RegExp(String.raw`\b(?:nominal|rated)\s+voltage\s*[:=]?\s*${num}\s*V\b`, 'gi');
+  const ampRe = new RegExp(String.raw`\b(?:nominal|rated)\s+capacity\s*[:=]?\s*${num}\s*(Ah|mAh)\b`, 'gi');
+  const whRe = new RegExp(String.raw`\b(?:nominal\s+|rated\s+|battery\s+|power\s+)?energy\s*[:=]?\s*(?:approximately|approx\.?|about|~)?\s*${num}\s*(?:Wh|Watt[- ]?Hours?)\b`, 'gi');
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length < 4 || line.length > 400) continue;
+    let m;
+    voltRe.lastIndex = 0; while ((m = voltRe.exec(line)) !== null) { volts.add(Number(m[1])); seen.volt = m[0]; }
+    ampRe.lastIndex = 0; while ((m = ampRe.exec(line)) !== null) { amps.add(m[2].toLowerCase() === 'mah' ? Number(m[1]) / 1000 : Number(m[1])); seen.amp = m[0]; }
+    whRe.lastIndex = 0; while ((m = whRe.exec(line)) !== null) { watts.add(Number(m[1])); seen.watt = m[0]; }
+  }
+  if (volts.size !== 1 || amps.size !== 1 || watts.size !== 1) return [];
+  const [v] = volts, [ah] = amps, [wh] = watts;
+  const derived = v * ah;
+  if (!Number.isFinite(derived) || wh <= 0) return [];
+  const rel = Math.abs(derived - wh) / wh;
+  if (rel <= tolerance) return [];
+  return [{
+    kind: 'energy-arithmetic-mismatch',
+    stated: wh, derived: Number(derived.toFixed(2)), relativeError: Number(rel.toFixed(4)),
+    claimText: `${seen.volt} | ${seen.amp} | ${seen.watt}`,
+    arithmetic: `${v} V x ${ah} Ah = ${Number(derived.toFixed(2))} Wh, but the page states ${wh} Wh (${(rel * 100).toFixed(1)}% apart)`,
+    note: 'Nominal volts times amp-hours should equal the stated watt-hours. One of the three figures is wrong, or the page mixes figures from different variants.',
+  }];
+}

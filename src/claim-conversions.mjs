@@ -102,6 +102,20 @@ export function conversionPairs(text) {
     });
   }
 
+  // Weight written as pounds AND ounces beside a metric figure: "4 lb 6.9 oz (2010 g)", "2lbs 8oz / 1.13 kg". The plain
+  // lb/kg pattern below needs one number before "lb", so a compound weight was never read. Found 2026-10-13 on a real
+  // sleeping bag page (3 of 59 pages carried the form). Pounds and ounces are added into pounds first.
+  const compound = /(\d+)\s*(?:lbs?|pounds?)\.?\s*(\d+(?:\.\d+)?)\s*(?:oz|ounces?)\.?\s*(?:\(|\/)\s*(\d+(?:\.\d+)?)\s*(kg|g)\b\)?/gi;
+  while ((m = compound.exec(src)) !== null) {
+    pairs.push({
+      kind: 'weight',
+      stated: Number(m[1]) + Number(m[2]) / 16, fromUnit: 'lb',
+      statedOther: Number(m[3]), toUnit: m[4].toLowerCase(),
+      display: `${m[1]} lb ${m[2]} oz`,
+      raw: m[0],
+    });
+  }
+
   // Weight: "31.5 lbs. (14.3 kg)".
   const weight = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)\.?\s*\((\d+(?:\.\d+)?)\s*(kg|g)\)/gi;
   while ((m = weight.exec(src)) !== null) {
@@ -138,6 +152,8 @@ export function convert(value, fromUnit, toUnit) {
   if (f === 'kg' && t === 'lb') return value / CONVERSIONS.kgPerLb;
   if (f === 'f' && t === 'c') return (value - 32) * 5 / 9;
   if (f === 'c' && t === 'f') return value * 9 / 5 + 32;
+  if (f === 'lb' && t === 'g') return value * CONVERSIONS.kgPerLb * 1000;
+  if (f === 'g' && t === 'lb') return value / (CONVERSIONS.kgPerLb * 1000);
   if (f === 'in-lb' && t === 'n-m') return value * CONVERSIONS.nmPerInLb;
   if (f === 'n-m' && t === 'in-lb') return value / CONVERSIONS.nmPerInLb;
   return null;
@@ -182,11 +198,20 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       // it to -9 C is correct, yet that is a 4.7% 'error'. A rounded whole-degree figure is within half a degree
       // of the exact conversion, so for temperatures the gap must also exceed that before it is a real mismatch.
       const roundingGap = (pair.kind === 'temperature-range' || pair.kind === 'temperature') ? Math.abs(exp - b) <= 0.55 : false;
-      if (relError > tolerance && !roundingGap) {
+      // A figure can only be as precise as it is written: "1.5 lbs" means 1.45 to 1.55, so "(700 g)" (1.54 lb) is
+      // consistent with it, yet a flat 2% tolerance called it 2.8% apart. The allowance is half a unit in the last
+      // written digit of EITHER figure, as a fraction of that figure. Found 2026-10-13 on a real sleeping bag page, once
+      // the tool could finally convert pounds to grams.
+      const decimalsOf = x => Math.min(6, (String(x).split('.')[1] || '').length);
+      const roundingAllowance = Math.max(
+        0.5 * 10 ** -decimalsOf(a) / Math.max(Math.abs(a), 1e-9),
+        0.5 * 10 ** -decimalsOf(b) / Math.max(Math.abs(b), 1e-9),
+      );
+      if (relError > Math.max(tolerance, roundingAllowance) && !roundingGap) {
         flags.push({
           ...record,
           flagKind: 'conversion-mismatch',
-          arithmetic: `${a} ${pair.fromUnit} = ${round(exp, 4)} ${pair.toUnit}, but the page states ${b} ${pair.toUnit} (${(relError * 100).toFixed(1)}% apart)`,
+          arithmetic: `${pair.display ?? `${a} ${pair.fromUnit}`} = ${round(exp, 4)} ${pair.toUnit}, but the page states ${b} ${pair.toUnit} (${(relError * 100).toFixed(1)}% apart)`,
           note: 'The page states this quantity in two unit systems and they disagree. One of the two figures is wrong; both being rounded is not enough to explain this gap.',
         });
       }

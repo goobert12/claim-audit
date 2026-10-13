@@ -89,6 +89,18 @@ test('the numbers inside a temperature RANGE are not paired with each other as s
   assert.deepEqual(r.flags, []);
 });
 
+test('a weight in pounds and ounces beside a metric figure is read, and grams are convertible', () => {
+  // "4 lb 6.9 oz (2010 g)" is correct; 3 of 59 real pages carried a pounds-and-ounces weight and none were read.
+  for (const ok of ['Weight: reg - 4 lb 6.9 oz (2010 g)', 'Weight: 2lbs 8oz (1.13 kg)', 'Weight 5 lb 1 oz / 2.3 kg', 'Weight: 26.9 lbs. (12200 g)']) {
+    const r = checkConversions(ok);
+    assert.equal(r.checked.length, 1, `should be read: ${ok}`);
+    assert.deepEqual(r.flags, [], `should not be flagged: ${ok}`);
+  }
+  const bad = checkConversions('Weight: 2lbs 8oz (2.5 kg)');
+  assert.equal(bad.flags.length, 1);
+  assert.match(bad.flags[0].arithmetic, /^2 lb 8 oz = 1\.134 kg, but the page states 2\.5 kg/);
+});
+
 test('rounding a page actually does is NOT flagged', () => {
   // "14.3 kg" for 31.5 lb is 31.526 lb: correct to the precision chosen. A tool
   // that flagged this would fire on nearly every honest spec sheet.
