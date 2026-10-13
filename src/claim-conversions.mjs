@@ -73,6 +73,24 @@ export function conversionPairs(text) {
     });
   }
 
+  // A temperature range whose FIRST number carries no scale, written around a slash or in parentheses:
+  // "20 - 30 C / 68 - 90 F", "20-30°C / 68-86°F", "20 - 30 C (68 - 86 F)". The earlier blocks all need a scale
+  // letter after EACH number, so this common form was invisible: a wrong "90 F" beside "30 C" (30 C is 86 F) passed
+  // with zero pairs checked. Named groups are used on purpose: a
+  // numeric backreference with too few groups before it is read as an octal escape and silently matches nothing.
+  const rangeBareFirst = /(?<![\d.])(?<lo1>-?\d+(?:\.\d+)?)\s*(?:°|deg\.?)?\s*(?:-|–|—|~|to)\s*(?<hi1>-?\d+(?:\.\d+)?)\s*(?:°|deg\.?\s*)?(?<u1>[FC])\b\s*(?:\/|\()\s*(?<lo2>-?\d+(?:\.\d+)?)\s*(?:°|deg\.?)?\s*(?:-|–|—|~|to)\s*(?<hi2>-?\d+(?:\.\d+)?)\s*(?:°|deg\.?\s*)?(?<u2>[FC])\b\)?/gi;
+  while ((m = rangeBareFirst.exec(src)) !== null) {
+    const g = m.groups;
+    if (g.u1.toUpperCase() === g.u2.toUpperCase()) continue;
+    pairs.push({
+      kind: 'temperature-range',
+      stated: Number(g.lo1), fromUnit: g.u1.toUpperCase(),
+      statedOther: Number(g.lo2), toUnit: g.u2.toUpperCase(),
+      statedHigh: Number(g.hi1), statedHighOther: Number(g.hi2),
+      raw: m[0],
+    });
+  }
+
   // A SINGLE temperature in two scales: "30\u00b0F (-1\u00b0C)", "20\u00b0F / -7\u00b0C". Sleeping bags, batteries and
   // coolers state one rating this way. 7 of 59 real pages carried it and none were read. The numbers inside a RANGE
   // ("131\u00b0F (-20\u00b0C to 55\u00b0C)") are not single pairs and must not be paired with each other, so a match that sits

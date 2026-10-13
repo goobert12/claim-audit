@@ -71,6 +71,20 @@ test('a whole-degree temperature near zero is NOT flagged, but a genuine one-deg
   assert.equal(flags[0].statedOther, -9);
 });
 
+test('a slash or parenthesis range whose first number has no scale is read', () => {
+  // "20 - 30 C / 68 - 90 F": the 90 is wrong (30 C is 86 F). Every earlier block needed a scale after EACH number,
+  // so this form produced zero checked pairs and zero flags.
+  const bad = checkConversions('20 - 30 C / 68 - 90 F');
+  assert.equal(bad.checked.length, 2, 'both ends are read, not double counted');
+  assert.equal(bad.flags.length, 1);
+  assert.equal(bad.flags[0].statedOther, 90);
+  for (const ok of ['20 - 30 C / 68 - 86 F', '20-30°C / 68-86°F', '20 - 30 C (68 - 86 F)', '-20 - 55 C / -4 - 131 F', 'Charge 0 - 45 C / 32 - 113 F']) {
+    const r = checkConversions(ok);
+    assert.equal(r.checked.length, 2, `should be read: ${ok}`);
+    assert.deepEqual(r.flags, [], `should not be flagged: ${ok}`);
+  }
+});
+
 test('a single temperature stated in two scales is read, and only a real mismatch is flagged', () => {
   // Sleeping bags and batteries state one rating this way. 7 of 59 real pages carried it and none were read.
   for (const ok of ['Rating 30\u00b0F (-1\u00b0C)', 'Rating 20\u00b0F / -7\u00b0C', 'Rating 5\u00b0F (-15\u00b0C)', 'Rating 14\u00b0F (-10\u00b0C)']) {
