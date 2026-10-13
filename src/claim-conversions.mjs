@@ -221,10 +221,10 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       // written digit of EITHER figure, as a fraction of that figure. Found 2026-10-13 on a real sleeping bag page, once
       // the tool could finally convert pounds to grams.
       const decimalsOf = x => Math.min(6, (String(x).split('.')[1] || '').length);
-      const roundingAllowance = Math.max(
-        0.5 * 10 ** -decimalsOf(a) / Math.max(Math.abs(a), 1e-9),
-        0.5 * 10 ** -decimalsOf(b) / Math.max(Math.abs(b), 1e-9),
-      );
+      // A figure that is exactly zero has no relative precision, so it contributes no allowance (dividing by a near-zero
+      // made the allowance huge and let "0 C (50 F)" pass: 0 C is 32 F). Found 2026-10-13 by a free model reading this code.
+      const sideAllowance = x => (x === 0 ? 0 : 0.5 * 10 ** -decimalsOf(x) / Math.abs(x));
+      const roundingAllowance = Math.max(sideAllowance(a), sideAllowance(b));
       if (relError > Math.max(tolerance, roundingAllowance) && !roundingGap) {
         flags.push({
           ...record,
