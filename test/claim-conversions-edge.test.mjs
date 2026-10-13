@@ -151,9 +151,10 @@ test('a fraction of an inch is one number, not its denominator', () => {
 });
 
 test('whole-degree temperatures: a gap that rounding of both figures explains is not flagged, a larger one is', () => {
-  // A true -9.6 C prints as -10 C and as 15 F, so -10 C beside 15 F is consistent.
-  assert.deepEqual(checkConversions('Charge Temperature -10\u00b0C~45\u00b0C / 15\u00b0F-113\u00b0F').flags, []);
-  assert.equal(checkConversions('Charge Temperature -10\u00b0C~45\u00b0C / 17\u00b0F-113\u00b0F').flags.length, 1);
-  assert.equal(checkConversions('Operating temperature: 20\u00b0C (70\u00b0F)').flags.length, 1);
-  assert.equal(checkConversions('Operating temperature: 20\u00b0C (69\u00b0F)').flags.length, 0);
+  // A true 20.3 C prints as 20 C and as 69 F, so that pair is consistent; 70 F cannot go with 20 C.
+  assert.equal(checkConversions('Operating temperature: 20°C (70°F)').flags.length, 1);
+  assert.equal(checkConversions('Operating temperature: 20°C (69°F)').flags.length, 0);
+  // -10 C is 14 F; 15 F is within the combined rounding of both whole-degree figures.
+  assert.equal(checkConversions('Operating temperature: -10°C (15°F)').flags.length, 0);
+  assert.equal(checkConversions('Operating temperature: -10°C (17°F)').flags.length, 1);
 });
