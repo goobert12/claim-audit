@@ -142,3 +142,51 @@ test('a round nominal figure beside an exact imperial one is marketing rounding,
   assert.equal(checkConversions('Range: 301 miles (500 km)').flags.length, 0, 'within 6% on a nominal side');
   assert.equal(checkConversions('Range: 123 miles (260 km)').flags.length, 1, '123 mi is 198 km: neither side is nominal and the gap is large');
 });
+
+// ---- prose arithmetic, found missing by a test set of sentence-style errors (2026-10-13) --------------------
+
+import {checkEachTotal, checkListedSum, checkChargeVoltEnergy} from '../src/claim-consistency.mjs';
+
+test('a count times an each-figure is compared with the stated total', () => {
+  assert.equal(checkEachTotal('Each box contains 12 bars at 40 g each, for a total of 600 g per box.').length, 1);
+  assert.equal(checkEachTotal('The multi-pack offers 6 rolls per pack at 120 sheets each, for 600 sheets total.').length, 1);
+  assert.equal(checkEachTotal('This hub has 6 ports at 18 W each, delivering 120 W total.').length, 1);
+  assert.equal(checkEachTotal('Each box contains 12 bars at 40 g each, for a total of 480 g per box.').length, 0);
+  // totals that legitimately differ from count x each: tax, shipping, extras, prices
+  assert.equal(checkEachTotal('Buy 3 cables at 10 each, total 35 with shipping.').length, 0);
+  assert.equal(checkEachTotal('Pack of 4 at $12 each, total $60 after tax.').length, 0);
+});
+
+test('listed same-unit parts and listed counts are compared with the stated total', () => {
+  assert.equal(checkListedSum('The gym set weighs 40 lbs, the bench 35 lbs, and the rack 20 lbs, for a total of 105 lbs.').length, 1);
+  assert.equal(checkListedSum('The gym set weighs 40 lbs, the bench 35 lbs, and the rack 20 lbs, for a total of 95 lbs.').length, 0);
+  assert.equal(checkListedSum('The starter kit includes 3 bottles and 5 refills, giving you 10 pieces in total.').length, 1);
+  assert.equal(checkListedSum('The starter kit includes 3 bottles and 5 refills, giving you 8 pieces in total.').length, 0);
+  // mixed units, optional extras and ranges are left alone
+  assert.equal(checkListedSum('Includes 3 bottles and 5 refills plus a free pouch, 10 pieces in total.').length, 0);
+  assert.equal(checkListedSum('Runs 5 hours on low and 100 minutes on high, 7 hours in total.').length, 0);
+});
+
+test('capacity times nominal voltage against watt-hours when the figures are not in V-Ah-Wh order', () => {
+  assert.equal(checkChargeVoltEnergy('5000 mAh (37 Wh) battery, 3.7 V nominal.').length, 1);
+  assert.equal(checkChargeVoltEnergy('20000 mAh (74 Wh) battery, 3.7 V nominal.').length, 0);
+  assert.equal(checkChargeVoltEnergy('500 Wh capacity at 50 V, rated 5 Ah.').length, 1);
+  // USB outputs and charging figures are not the battery voltage
+  assert.equal(checkChargeVoltEnergy('20000 mAh 74 Wh, 5 V / 2 A USB output').length, 0);
+  assert.equal(checkChargeVoltEnergy('Battery: 12 V 100 Ah 1280 Wh').length, 0, 'V Ah Wh order belongs to the triplet check');
+});
+
+test('"from 5 V up to 3 V" is a reversed range; "from 3 V up to 5 V" is not', () => {
+  assert.equal(checkRangeOrder('Adjustable output from 5 V up to 3 V.').length, 1);
+  assert.equal(checkRangeOrder('Adjustable output from 3 V up to 5 V.').length, 0);
+});
+
+test('kg/g, litres/ml and fluid ounces/ml are checked, with thousands commas and "about"', () => {
+  assert.equal(checkConversions('1.5 kg (150 g) total weight').flags.length, 1);
+  assert.equal(checkConversions('1.5 kg (1500 g) total weight').flags.length, 0);
+  assert.equal(checkConversions('The water bottle holds 24 oz (about 1,000 ml).').flags.length, 1);
+  assert.equal(checkConversions('The water bottle holds 24 oz (about 710 ml).').flags.length, 0);
+  assert.equal(checkConversions('The kettle boils 1.7 litres (about 100 fl oz) of water.').flags.length, 1);
+  assert.equal(checkConversions('The kettle boils 1.7 litres (about 57 fl oz) of water.').flags.length, 0);
+  assert.equal(checkConversions('Capacity 2 litres (2,000 ml)').flags.length, 0);
+});

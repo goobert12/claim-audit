@@ -24,6 +24,7 @@ const CONVERSIONS = Object.freeze({
   cmPerIn: 2.54,
   mmPerCm: 10,
   gPerOz: 28.349523125,
+  mlPerFlOz: 29.5735295625,
   barPerPsi: 0.0689475729,
   kmPerMi: 1.609344,
   lPerGalUs: 3.785411784,
@@ -166,13 +167,20 @@ export function conversionPairs(text) {
     ['gal', 'gal(?:lons?)?', 'l', 'lit(?:er|re)s?|l'],
     ['ft', 'feet|foot|ft', 'm', 'met(?:er|re)s?|m'],
     ['mph', 'mph', 'kmh', 'km/h|kph|kmh'],
+    ['kg', 'kilograms?|kg', 'g', 'grams?|g'],
+    ['l', 'lit(?:er|re)s?|l', 'ml', 'milli(?:lit(?:er|re))s?|ml'],
+    ['l', 'lit(?:er|re)s?|l', 'floz', 'fl\\.?\\s?oz|fluid\\s+ounces?'],
+    // "fl oz" and, because the other side is millilitres, a bare "oz" can only mean fluid ounces.
+    ['floz', 'fl\\.?\\s?oz|fluid\\s+ounces?|oz|ounces?', 'ml', 'milli(?:lit(?:er|re))s?|ml'],
   ];
   for (const [uA, reA, uB, reB] of EVERYDAY) {
     for (const [fromU, fromRe, toU, toRe] of [[uA, reA, uB, reB], [uB, reB, uA, reA]]) {
       // (?<!lb...) : "4 lb 10.4 oz (2110 g)" is a compound weight handled above; its ounces are not a stand-alone figure.
-      const re = new RegExp(String.raw`(?<![\d.,/])(?<!(?:lbs?|pounds?)\.?\s*)(\d+(?:\.\d+)?)\s*(?:${fromRe})\.?(?![A-Za-z])\s*(?:\(|/|=)\s*(\d+(?:\.\d+)?)\s*(?:${toRe})(?![A-Za-z])\)?`, 'gi');
+      // Numbers may carry thousands commas ("1,000 ml"), and the second may be introduced by "about" ("(about 100 fl oz)").
+      const NUMBER = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
+      const re = new RegExp(String.raw`(?<![\d.,/])(?<!(?:lbs?|pounds?)\.?\s*)(${NUMBER})\s*(?:${fromRe})\.?(?![A-Za-z])\s*(?:\(|/|=)\s*(?:about|approx\.?|approximately|around|~|≈)?\s*(${NUMBER})\s*(?:${toRe})(?![A-Za-z])\)?`, 'gi');
       while ((m = re.exec(src)) !== null) {
-        pairs.push({kind: 'everyday', stated: Number(m[1]), fromUnit: fromU, statedOther: Number(m[2]), toUnit: toU, raw: m[0]});
+        pairs.push({kind: 'everyday', stated: Number(m[1].replace(/,/g, '')), fromUnit: fromU, statedOther: Number(m[2].replace(/,/g, '')), toUnit: toU, raw: m[0]});
       }
     }
   }
@@ -221,6 +229,12 @@ export function convert(value, fromUnit, toUnit) {
   if (f === 'cm' && t === 'in') return value / CONVERSIONS.cmPerIn;
   if (f === 'cm' && t === 'mm') return value * CONVERSIONS.mmPerCm;
   if (f === 'mm' && t === 'cm') return value / CONVERSIONS.mmPerCm;
+  if (f === 'l' && t === 'ml') return value * 1000;
+  if (f === 'ml' && t === 'l') return value / 1000;
+  if (f === 'l' && t === 'floz') return value * 1000 / CONVERSIONS.mlPerFlOz;
+  if (f === 'floz' && t === 'l') return value * CONVERSIONS.mlPerFlOz / 1000;
+  if (f === 'floz' && t === 'ml') return value * CONVERSIONS.mlPerFlOz;
+  if (f === 'ml' && t === 'floz') return value / CONVERSIONS.mlPerFlOz;
   if (f === 'oz' && t === 'g') return value * CONVERSIONS.gPerOz;
   if (f === 'g' && t === 'oz') return value / CONVERSIONS.gPerOz;
   if (f === 'psi' && t === 'bar') return value * CONVERSIONS.barPerPsi;

@@ -44,8 +44,9 @@ Anything a page states twice, it can be caught contradicting.
 **It also runs a few checks a page can fail against itself without being stated twice**,
 each one-sided on purpose so that an innocent explanation never raises a flag: a range
 written high to low (`220-110 V`), watts above volts times amps, a stated total that is not
-the sum of its listed parts, a volume larger than the box its own dimensions describe, and
-a weight above size times density. A wattage *below* volts times amps is normal (power
+the sum of its listed parts (including "12 at 40 g each, 600 g total"), a volume larger than
+the box its own dimensions describe, a weight above size times density, and watt-hours that
+disagree with capacity times nominal voltage. A wattage *below* volts times amps is normal (power
 factor, efficiency), so it is never flagged.
 
 ---

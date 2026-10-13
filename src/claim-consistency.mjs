@@ -28,7 +28,7 @@ export function checkRangeOrder(text) {
   const flags = [];
   // The first figure may carry its own unit before "to" or an en/em dash ("50 Hz to 20 kHz", "55 C to -20 C"); before a plain hyphen it
   // would be a subtraction ("10 V - 3 V"), so that form is only read when the unit is written once, after the second figure.
-  const re = new RegExp(String.raw`(?<![\w.,/\-])(?<lo>-?${NUM})\s*(?:(?<u1>${RANGE_UNIT})\s*(?:to\b|[–—])|[-–—]|\bto\b)\s*(?<hi>-?${NUM})(?![\d./])\s*(?<u2>${RANGE_UNIT})`, 'gi');
+  const re = new RegExp(String.raw`(?<![\w.,/\-])(?<lo>-?${NUM})\s*(?:(?<u1>${RANGE_UNIT})\s*(?:(?:up\s+)?to\b|[–—])|[-–—]|\b(?:up\s+)?to\b)\s*(?<hi>-?${NUM})(?![\d./])\s*(?<u2>${RANGE_UNIT})`, 'gi');
   let m;
   while ((m = re.exec(String(text || ''))) !== null) {
     let lo = Number(m.groups.lo), hi = Number(m.groups.hi);
@@ -209,6 +209,106 @@ export function checkWeightVsDensity(text, {tolerance = 0.03} = {}) {
   return flags;
 }
 
+const NUMC = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
+const numOf = s => Number(String(s).replace(/,/g, ''));
+// Words that mean a stated total is not simply the arithmetic of the parts (tax, shipping, optional extras, bonus items).
+const NOT_PLAIN_TOTAL = /\$|€|£|\b(?:tax|shipping|plus|extra|bonus|free|optional|add(?:itional)?|excluding|including|approx|up to|max|peak)\b/i;
+
+/** "12 bars at 40 g each, for a total of 600 g": a count times an each-figure against a stated total. */
+export function checkEachTotal(text, {tolerance = 0.02} = {}) {
+  const flags = [];
+  for (const raw of String(text || '').split(/\r?\n|(?<=[.!?])\s+(?=[A-Z])/)) {
+    const line = raw.trim();
+    if (line.length > 300 || NOT_PLAIN_TOTAL.test(line)) continue;
+    const m = new RegExp(String.raw`(?<![\d.,])(${NUMC})\s+(?:[A-Za-z-]+\s+){0,3}?(?:at|with|of)\s+(${NUMC})\s*([A-Za-z%]{0,8})\s+each\b([^.]*?)\b(?:total(?:\s+of)?|giving|delivering|for)\s*:?\s*(${NUMC})\s*([A-Za-z%]{0,8})|(?<![\d.,])(${NUMC})\s+(?:[A-Za-z-]+\s+){0,3}?(?:at|with|of)\s+(${NUMC})\s*([A-Za-z%]{0,8})\s+each\b[^.]*?\b(${NUMC})\s*([A-Za-z%]{0,8})\s+(?:in\s+)?total\b`, 'i').exec(line);
+    if (!m) continue;
+    const [count, each, eachUnit, total, totalUnit] = m[1]
+      ? [numOf(m[1]), numOf(m[2]), m[3], numOf(m[5]), m[6]]
+      : [numOf(m[7]), numOf(m[8]), m[9], numOf(m[10]), m[11]];
+    // Only compare like with like: the total is in the each-figure's unit (or both are unitless counts).
+    if ((eachUnit || totalUnit) && eachUnit.toLowerCase() !== totalUnit.toLowerCase()) continue;
+    const product = count * each;
+    if (!(product > 0) || !(total > 0) || Math.abs(product - total) / Math.max(product, total) <= tolerance) continue;
+    flags.push({
+      kind: 'each-times-count-mismatch',
+      claimText: line,
+      arithmetic: `${count} x ${each}${eachUnit ? ' ' + eachUnit : ''} = ${Number(product.toFixed(4))}, but the text states a total of ${total}${totalUnit ? ' ' + totalUnit : ''}`,
+      note: 'A count times an each-figure should equal the stated total. Either the count, the each-figure or the total is off.',
+      relativeError: Math.abs(product - total) / Math.max(product, total),
+    });
+  }
+  return flags;
+}
+
+/** "the set weighs 40 lbs, the bench 35 lbs, and the rack 20 lbs, for a total of 105 lbs": same-unit parts against a stated total. */
+export function checkListedSum(text, {tolerance = 0.02} = {}) {
+  const flags = [];
+  for (const raw of String(text || '').split(/\r?\n|(?<=[.!?])\s+(?=[A-Z])/)) {
+    const line = raw.trim();
+    if (line.length > 300 || NOT_PLAIN_TOTAL.test(line)) continue;
+    const t = new RegExp(String.raw`(?:(?:for\s+)?a\s+)?total(?:\s+of)?\s*:?\s*(${NUMC})\s*([A-Za-z%]{1,8})?|(${NUMC})\s*([A-Za-z%]{1,8})?\s+(?:in\s+)?total\b`, 'i').exec(line);
+    if (!t) continue;
+    const total = numOf(t[1] ?? t[3]);
+    const unit = (t[2] ?? t[4] ?? '').toLowerCase();
+    const before = line.slice(0, t.index);
+    if (/\b(?:each|per|every)\b|\d\s*[x×]\s*\d|[+=]/i.test(before)) continue; // products and explicit sums are other checks
+    const parts = [...before.matchAll(new RegExp(String.raw`(?<![\d.,A-Za-z-])(${NUMC})\s*([A-Za-z%]{0,8})`, 'g'))].map(x => ({v: numOf(x[1]), u: x[2].toLowerCase()}));
+    if (parts.length < 2 || parts.length > 6) continue;
+    // A unit that is not a measurement ('pieces', 'ports', 'lids') is a count word, not a unit: treat the list as counts.
+    const MEASURE = /^(?:kg|g|lbs?|oz|mg|w|kw|v|a|ma|wh|kwh|ah|mah|l|ml|mm|cm|m|km|in|ft|mi|hz|khz|%|mins?|minutes?|hrs?|hours?|days?|s)$/;
+    if (unit && MEASURE.test(unit)) {
+      // weights, volumes, powers: every part must carry the same unit as the total
+      if (!parts.every(p => p.u === unit)) continue;
+    } else {
+      // plain counts: parts are whole numbers followed by words (3 bottles and 5 refills), and the total is a whole number
+      if (!parts.every(p => Number.isInteger(p.v) && p.v < 1000) || !Number.isInteger(total)) continue;
+      if (/\d/.test(before.replace(new RegExp(String.raw`(?<![\d.,A-Za-z-])(?:${NUMC})`, 'g'), ''))) continue;
+    }
+    const sum = parts.reduce((a, p) => a + p.v, 0);
+    if (!(sum > 0) || Math.abs(sum - total) / Math.max(sum, total) <= tolerance) continue;
+    flags.push({
+      kind: 'listed-total-mismatch',
+      claimText: line,
+      arithmetic: `${parts.map(p => p.v).join(' + ')} = ${Number(sum.toFixed(4))}${unit ? ' ' + unit : ''}, but the text states a total of ${total}${unit ? ' ' + unit : ''}`,
+      note: 'Listed parts should add up to the stated total. Either the total or one of the parts is off.',
+      relativeError: Math.abs(sum - total) / Math.max(sum, total),
+    });
+  }
+  return flags;
+}
+
+/**
+ * Watt-hours against amp-hours times nominal volts when the figures are not in "V Ah Wh" order: "5000 mAh (37 Wh) battery, 3.7 V nominal".
+ * Speaks only when the line holds exactly one capacity, one energy and one VOLTAGE that is called nominal (or the only voltage and no
+ * current figure), because USB outputs ("5 V / 2 A") are not the battery voltage.
+ */
+export function checkChargeVoltEnergy(text, {tolerance = 0.08} = {}) {
+  const flags = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length > 300 || /\b(?:output|input|charge|charging|usb|pd|max|peak)\b/i.test(line)) continue;
+    const ah = [...line.matchAll(new RegExp(String.raw`(?<![\d.,])(${NUMC})\s*(mAh|Ah)\b`, 'gi'))];
+    const wh = [...line.matchAll(new RegExp(String.raw`(?<![\d.,])(${NUMC})\s*Wh\b`, 'gi'))];
+    const volts = [...line.matchAll(new RegExp(String.raw`(?<![\d.,])(${NUMC})\s*V(?![A-Za-z])`, 'g'))];
+    const amps = [...line.matchAll(new RegExp(String.raw`(?<![\d.,])(${NUMC})\s*A(?![A-Za-z])`, 'g'))];
+    if (ah.length !== 1 || wh.length !== 1 || volts.length !== 1 || amps.length) continue;
+    const cap = numOf(ah[0][1]) / (ah[0][2].toLowerCase() === 'mah' ? 1000 : 1);
+    const derived = cap * numOf(volts[0][1]);
+    const stated = numOf(wh[0][1]);
+    // "V Ah Wh" in that order is already handled by checkEnergyTriplets.
+    if (volts[0].index < ah[0].index && ah[0].index < wh[0].index) continue;
+    if (!(derived > 0) || !(stated > 0) || Math.abs(derived - stated) / stated <= tolerance) continue;
+    flags.push({
+      kind: 'charge-volt-energy-mismatch',
+      claimText: line,
+      arithmetic: `${ah[0][1]} ${ah[0][2]} x ${volts[0][1]} V = ${Number(derived.toFixed(3))} Wh, but the line states ${wh[0][1]} Wh`,
+      note: 'Capacity times voltage should equal the stated watt-hours. One of the three figures is wrong.',
+      relativeError: Math.abs(derived - stated) / stated,
+    });
+  }
+  return flags;
+}
+
 export function checkConsistency(text) {
-  return [...checkRangeOrder(text), ...checkPowerTriplet(text), ...checkSumOfParts(text), ...checkCountTimesCapacity(text), ...checkVolumeVsDimensions(text), ...checkWeightVsDensity(text)];
+  return [...checkRangeOrder(text), ...checkPowerTriplet(text), ...checkSumOfParts(text), ...checkCountTimesCapacity(text), ...checkVolumeVsDimensions(text), ...checkWeightVsDensity(text), ...checkEachTotal(text), ...checkListedSum(text), ...checkChargeVoltEnergy(text)];
 }
