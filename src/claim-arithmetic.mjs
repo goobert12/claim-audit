@@ -74,10 +74,21 @@ const PROPERTY_ALIASES = Object.freeze([
   // so the two patterns do not overlap.
   [/maximum\s+output\s+current|output\s+current|supply\s+current|supply\s+delivers|can\s+supply|power\s+supply.*\d+\s*mA/i, 'supplyCurrent'],
   [/current\s+draw|draws?\s+\d+\s*mA|current\s+consumption|power\s+consumption|consumes\s+\d+\s*mA/i, 'currentDraw'],
-  [/rail\s+voltage|\+\s*12\s*v\s+rail|supply\s+voltage/i, 'railVoltage'],
+  // "supply voltage" is deliberately NOT here: on most products it is mains (120 V, 230 V) and would be accused of exceeding 48 V.
+  [/rail\s+voltage|\+\s*12\s*v\s+rail/i, 'railVoltage'],
   [/\bwidth\b.*\bhp\b|\d+\s*hp\b|module\s+width/i, 'moduleWidth'],
   [/frequency\s+range|\bfreq(?:uency)?\s+response/i, 'frequencyRange'],
 ]);
+
+/** The family a unit belongs to, so a unit is never read under a property from a different family. */
+const UNIT_FAMILIES = Object.freeze({
+  '\u00b0c': 'temperature', '\u00b0f': 'temperature',
+  'gpa': 'stress', 'mpa': 'stress', 'kpa': 'stress', 'pa': 'stress',
+  'g/cm3': 'density', 'g/cm\u00b3': 'density', 'kg/m3': 'density',
+  'ma': 'current', 'a': 'current', 'v': 'voltage', 'kv': 'voltage',
+  'hz': 'frequency', 'khz': 'frequency', 'hp': 'width', '%': 'percent', 'l': 'volume',
+});
+function unitFamily(u) { return UNIT_FAMILIES[String(u || '').toLowerCase()] || null; }
 
 /** Units as written on pages, mapped to a canonical form and a scale to the bounds unit. */
 // THE single list of unit tokens that may follow a number. Every regex below interpolates this,
@@ -139,7 +150,8 @@ export function primaryMeasurement(claimText) {
   for (const [re, key] of PROPERTY_ALIASES) {
     if (key !== property) continue;
     const m = re.exec(text);
-    if (m) { after = m.index + m[0].length; break; }
+    // An alias that itself contains the number ("draws 5000 mA") must not consume it, or the tail is empty and nothing is checked.
+    if (m) { after = /\d/.test(m[0]) ? m.index : m.index + m[0].length; break; }
   }
   const tail = text.slice(after);
 
@@ -164,7 +176,15 @@ export function primaryMeasurement(claimText) {
   const mMod = withModifier.exec(tail);
   const mBare = bare.exec(tail);
   // Prefer the base of a tolerance when it appears before the bare match.
-  const m = mMod && (!mBare || mMod.index <= mBare.index) ? mMod : mBare;
+  let m = mMod && (!mBare || mMod.index <= mBare.index) ? mMod : mBare;
+  // A hyphen range with the unit after the second number ("80-95 \u00b0C"): the bare match sees only "95 \u00b0C". Read both ends.
+  let leadHigh = null;
+  if (m && m === mBare) {
+    const lead = new RegExp(String.raw`(?<![\d.,])(\d+(?:[.,]\d+)?)\s*[-\u2013\u2014]\s*(\d+(?:[.,]\d+)?)\s*(${UNIT_ALTERNATION})`, 'i').exec(tail);
+    if (lead && lead.index + lead[0].length === mBare.index + mBare[0].length) {
+      m = [lead[0], lead[1], lead[3]]; m.index = lead.index; leadHigh = lead[2];
+    }
+  }
 
   if (m) {
     // A range states two values. "230-250 °C" and "80-95 °C" are both usable
@@ -174,9 +194,10 @@ export function primaryMeasurement(claimText) {
     // and the lower bound is used for the bounds check because violating the floor
     // is the failure that ruins material.
     const afterMatch = tail.slice(m.index + m[0].length);
-    const rangeMatch = /^\s*[-\u2013\u2014]\s*(\d+(?:[.,]\d+)?)\s*${UNIT_ALTERNATION}/i.exec(afterMatch);
+    // (This was a regex literal containing ${UNIT_ALTERNATION}, which a literal never interpolates, so it could not match anything.)
+    const rangeMatch = new RegExp(String.raw`^\s*[-\u2013\u2014]\s*(\d+(?:[.,]\d+)?)\s*(?:${UNIT_ALTERNATION})`, 'i').exec(afterMatch);
     const value = Number(m[1].replace(',', '.'));
-    const rangeValue = rangeMatch ? Number(rangeMatch[1].replace(',', '.')) : null;
+    const rangeValue = leadHigh != null ? Number(leadHigh.replace(',', '.')) : (rangeMatch ? Number(rangeMatch[1].replace(',', '.')) : null);
     return typeof buildResult === 'function'
       ? buildResult({m, value, rangeValue, tail, after, scale: UNIT_SCALES[m[2].toLowerCase()]})
       : {
@@ -205,8 +226,8 @@ export function primaryMeasurement(claimText) {
   //
   // The unit comes from a bare unit token, preferring one at the end of the line
   // or introduced by "VALUE (unit)".
-  const unitTail = /VALUE\s*\(unit\)\s*:?\s*([A-Za-z%\u00b0\/\u00b2\u00b3]+)\s*$/i.exec(text);
-  const unitAny = unitTail ?? /(${UNIT_ALTERNATION})/i.exec(text);
+  const unitTail = /VALUE\s*\(unit\)\s*:?\s*([A-Za-z0-9%\u00b0\/\u00b2\u00b3]+)\s*$/i.exec(text);
+  const unitAny = unitTail ?? new RegExp(String.raw`(${UNIT_ALTERNATION})`, 'i').exec(text);
   if (!unitAny) return null;
   const rawUnit = unitTail ? unitTail[1] : unitAny[1];
   const fu = rawUnit.toLowerCase();
@@ -267,10 +288,21 @@ export function measurements(text) {
  */
 export function checkBounds(claimText, propertyKey = propertyFor(claimText)) {
   if (!propertyKey) return [];
-  const bounds = PROPERTY_BOUNDS[propertyKey];
-  if (!bounds) return [];
+  if (!PROPERTY_BOUNDS[propertyKey]) return [];
   const m = primaryMeasurement(claimText);
   if (!m) return [];
+  // A range ("80-95 C") states two values and BOTH must be possible: the floor can ruin material and the ceiling can be impossible.
+  const first = checkBoundsFor(claimText, propertyKey, m);
+  if (first.length || m.rangeValue == null) return first;
+  return checkBoundsFor(claimText, propertyKey, {...m, value: m.rangeValue});
+}
+
+function checkBoundsFor(claimText, propertyKey, m) {
+  const bounds = PROPERTY_BOUNDS[propertyKey];
+  // A unit must belong to the property it is read under. "5 A" can never be a nozzle temperature; a long page line that happens to
+  // contain the word "nozzle" and, far away, "5 A" produced "5 A = 5000 C". Stay silent rather than guess across families.
+  const fam = unitFamily(m.unitKey), bfam = unitFamily(String(bounds.unit).toLowerCase());
+  if (fam && bfam && fam !== bfam) return [];
 
   // Fahrenheit and Celsius are not related by a scale factor -- their zero points
   // differ -- so the conversion happens here rather than through UNIT_SCALES.

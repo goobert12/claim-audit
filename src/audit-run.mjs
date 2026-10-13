@@ -34,7 +34,7 @@ const outDirDefault = path.resolve(process.cwd(), 'reports');
 const argv = process.argv.slice(2);
 const flag = (n, d) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : d; };
 const asJson = argv.includes('--json');
-const target = argv.find(a => !a.startsWith('--') && a !== flag('--out', null) && a !== flag('--min-length', null));
+const target = argv.find(a => !a.startsWith('--') && a !== flag('--out', null) && a !== flag('--min-length', null) && a !== flag('--report-dir', null));
 if (!target) {
   console.error('usage: node scripts/audit-run.mjs <capture.md> [--out report.md] [--json]');
   process.exit(1);

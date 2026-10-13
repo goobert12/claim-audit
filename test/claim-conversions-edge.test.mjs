@@ -135,3 +135,11 @@ test('a stated zero has no rounding allowance, so a wrong partner figure is flag
   assert.deepEqual(checkConversions('0 C (32 F)').flags, []);
   assert.deepEqual(checkConversions('0 in (0 mm)').flags, []);
 });
+
+test('inches and centimetres, millimetres and centimetres, kilograms and grams are all converted', () => {
+  // convert() had no cm, mm-to-cm or kg-to-g branch, so "9.84 inches (25 cm)" was silently skipped and a wrong "20 cm" passed.
+  assert.equal(checkConversions('9.84 inches (25 cm)').checked.length, 1);
+  assert.deepEqual(checkConversions('9.84 inches (25 cm)').flags, []);
+  assert.equal(checkConversions('9.84 inches (20 cm)').flags.length, 1);
+  assert.deepEqual(checkConversions('Weight: 2.5 lb (1.13 kg)').flags, []);
+});

@@ -172,6 +172,12 @@ export function convert(value, fromUnit, toUnit) {
   if (f === 'c' && t === 'f') return value * 9 / 5 + 32;
   if (f === 'lb' && t === 'g') return value * CONVERSIONS.kgPerLb * 1000;
   if (f === 'g' && t === 'lb') return value / (CONVERSIONS.kgPerLb * 1000);
+  if (f === 'in' && t === 'cm') return value * CONVERSIONS.cmPerIn;
+  if (f === 'cm' && t === 'in') return value / CONVERSIONS.cmPerIn;
+  if (f === 'cm' && t === 'mm') return value * CONVERSIONS.mmPerCm;
+  if (f === 'mm' && t === 'cm') return value / CONVERSIONS.mmPerCm;
+  if (f === 'kg' && t === 'g') return value * 1000;
+  if (f === 'g' && t === 'kg') return value / 1000;
   if (f === 'in-lb' && t === 'n-m') return value * CONVERSIONS.nmPerInLb;
   if (f === 'n-m' && t === 'in-lb') return value / CONVERSIONS.nmPerInLb;
   return null;

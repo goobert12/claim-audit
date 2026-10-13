@@ -122,6 +122,20 @@ test('volts x amp-hours is checked against stated watt-hours, in labelled rows a
   assert.deepEqual(checkEnergyConsistency('Nominal Voltage: 12.8V\nCharge Voltage: 14.6V\nNominal Capacity: 100Ah\nEnergy: 1280Wh'), []);
 });
 
+test('bugs found by an independent code review stay fixed', () => {
+  // A phrase that itself contains the value ("draws 5000 mA") must still be checked; the alias used to consume the number.
+  assert.equal(checkClaim('The module draws 5000 mA').length, 1);
+  // 'Supply voltage' is mains wording on most products and must not be accused of exceeding a 48 V Eurorack rail.
+  assert.deepEqual(checkClaim('Supply voltage: 230 V'), []);
+  assert.deepEqual(checkClaim('Supply voltage: 120 V'), []);
+  // A hyphen range is read at BOTH ends: the floor and the ceiling can each be impossible.
+  assert.equal(checkClaim('Nozzle temperature: 50-250 °C').length, 1);
+  assert.equal(checkClaim('Bed temperature: 5-300 °C').length, 1);
+  assert.deepEqual(checkClaim('Bed temperature: 60-80 °C'), []);
+  // A unit must belong to the property: amps are never a nozzle temperature, even on a long run-on page line.
+  assert.deepEqual(checkClaim('Vacuum Nozzles and hoses 1000V Spanner Set 15.5G Sander 5 A charger'), []);
+});
+
 test('genuine values across real materials are NOT flagged', () => {
   // False accusations are the failure mode that matters most, so the generous
   // ranges are tested against real-world values rather than assumed adequate.
