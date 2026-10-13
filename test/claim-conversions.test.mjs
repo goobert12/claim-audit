@@ -62,6 +62,15 @@ test('a wrong temperature conversion is caught', () => {
   assert.ok(flags.some(f => f.statedOther === -99), `expected the -99 C figure to be flagged: ${JSON.stringify(flags.map(f => f.arithmetic))}`);
 });
 
+test('a whole-degree temperature near zero is NOT flagged, but a genuine one-degree gap still is', () => {
+  // 15 F is -9.44 C, so "-9 C" is correct rounding. A relative tolerance called it 4.7% apart.
+  assert.deepEqual(checkConversions('Operating temperature: 15°F to 113°F (-9°C to 45°C)').flags, []);
+  // 14 F is -10 C, so "-9 C" is a full degree off, which rounding does not explain.
+  const {flags} = checkConversions('Operating temperature: 14°F to 113°F (-9°C to 45°C)');
+  assert.equal(flags.length, 1);
+  assert.equal(flags[0].statedOther, -9);
+});
+
 test('rounding a page actually does is NOT flagged', () => {
   // "14.3 kg" for 31.5 lb is 31.526 lb: correct to the precision chosen. A tool
   // that flagged this would fire on nearly every honest spec sheet.

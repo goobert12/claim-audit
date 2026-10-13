@@ -160,7 +160,11 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
         raw: pair.raw,
       };
       checked.push(record);
-      if (relError > tolerance) {
+      // A temperature near zero makes a relative tolerance meaningless: 15 F is -9.44 C, so a page that rounds
+      // it to -9 C is correct, yet that is a 4.7% 'error'. A rounded whole-degree figure is within half a degree
+      // of the exact conversion, so for temperatures the gap must also exceed that before it is a real mismatch.
+      const roundingGap = pair.kind === 'temperature-range' ? Math.abs(exp - b) <= 0.55 : false;
+      if (relError > tolerance && !roundingGap) {
         flags.push({
           ...record,
           flagKind: 'conversion-mismatch',
