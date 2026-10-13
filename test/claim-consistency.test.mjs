@@ -9,7 +9,10 @@ import {checkConversions} from '../src/claim-conversions.mjs';
 
 test('a range written high to low is flagged; low to high and negatives are not', () => {
   assert.equal(checkRangeOrder('Input voltage: 220-110 V AC').length, 1);
-  assert.equal(checkRangeOrder('AC input range: 240 to 100 V').length, 1);
+  // (changed 2026-10-13: "240 to 100 V" between two mains voltages is read as a dual-voltage supply list, so it is no longer flagged;
+  // the dash form below and non-mains ends still are)
+  assert.equal(checkRangeOrder('AC input range: 240 to 100 V').length, 0);
+  assert.equal(checkRangeOrder('AC input range: 240-100 V').length, 1);
   assert.equal(checkRangeOrder('Operating temperature: 55 °C to -20 °C').length, 1);
   assert.equal(checkRangeOrder('Input voltage: 100-240 V AC').length, 0);
   assert.equal(checkRangeOrder('Operating temperature: -20 °C to 55 °C').length, 0);
@@ -225,4 +228,44 @@ test('BTU/h to watts, quarts to litres (US or UK) and square feet to square metr
   assert.equal(checkConversions('Capacity: 1.7 L (2.3 qt)').flags.length, 1);
   assert.equal(checkConversions('Covers 60 m2 (646 sq ft)').flags.length, 0);
   assert.equal(checkConversions('Covers 60 m2 (700 sq ft)').flags.length, 1);
+});
+
+// ---- false alarms and gaps from a third review, 2026-10-13 (exact lines) ----------------------------
+
+test('three-phase and multi-rail nameplates are not judged by volts x amps of one phase', () => {
+  assert.equal(checkPowerTriplet('Motor: 230 V, 10 A, 3000 W, three-phase').length, 0);
+  assert.equal(checkPowerTriplet('Power: 12 V, 5 A, 90 W (dual rail)').length, 0);
+  assert.equal(checkPowerTriplet('Output: 120 V, 15 A, 2000 W').length, 1, 'a single-phase impossibility is still caught');
+});
+
+test('a gross total, a model number, a further part and a usable capacity are not plain-sum mismatches', () => {
+  assert.equal(checkSumOfParts('2 lbs + 3 lbs (6 lbs gross)').length, 0);
+  assert.equal(checkListedSum('The 3 Series has 2 shelves and 4 drawers, for a total of 6 compartments.').length, 0);
+  assert.equal(checkEachTotal('3 bulbs at 10 W each and a 5 W adapter, for a total of 35 W.').length, 0);
+  assert.equal(checkConsistency('Battery: 3 x 2000 mAh (4500 mAh usable)').length, 0);
+  // the genuine controls still flag
+  assert.equal(checkListedSum('The set has 2 shelves and 4 drawers, for a total of 9 compartments.').length, 1);
+  assert.equal(checkEachTotal('12 bars at 40 g each, for a total of 600 g.').length, 1);
+  assert.equal(checkConsistency('Battery: 3 x 2000 mAh (7000 mAh total)').length, 1);
+});
+
+test('a dual-voltage label between two mains voltages is not a reversed range, but a dash form still is', () => {
+  assert.equal(checkRangeOrder('Input: 220 to 110 V').length, 0);
+  assert.equal(checkRangeOrder('Input voltage: 220-110 V AC').length, 1);
+  assert.equal(checkRangeOrder('AC input range: 240 to 55 V').length, 1, 'only mains-to-mains is treated as a supply list');
+});
+
+test('BTU/h beside watts: checked for a heater, left alone for cooling and heat pumps', () => {
+  assert.equal(checkConversions('Heater output: 10,000 BTU/h (2930 W)').flags.length, 0);
+  assert.equal(checkConversions('Space heater: 5000 BTU/h (2000 W)').flags.length, 1);
+  assert.equal(checkConversions('Air conditioner cooling: 9000 BTU/h (800 W)').flags.length, 0, 'cooling moves heat; input watts differ by the COP');
+  assert.equal(checkConversions('Heat pump 12000 BTU/h (1000 W)').flags.length, 0);
+});
+
+test('"kgs" is the same unit as kg, and a slash dimension set is converted and checked', () => {
+  assert.equal(checkConversions('Weight: 2.0 lbs (0.91 kgs)').flags.length, 0);
+  assert.equal(checkConversions('Weight: 2.0 lbs (1.5 kgs)').flags.length, 1);
+  assert.equal(checkConversions('Size 72 x 23 x 5 in / 183 x 58 x 13 cm').flags.length, 0);
+  assert.equal(checkConversions('Size 72 x 23 x 5 in / 183 x 70 x 13 cm').flags.length, 1);
+  assert.equal(checkConversions('Size 7 x 4.5 in / 18 x 12 cm').flags.length >= 1, true, 'a 5% gap beyond whole-cm rounding is flagged for a human');
 });

@@ -34,7 +34,7 @@ export function checkRangeOrder(text) {
     let lo = Number(m.groups.lo), hi = Number(m.groups.hi);
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue;
     // The two ends may be written in different-sized units of one family ("50 Hz to 20 kHz", "500 g to 1 kg"): compare in a common unit.
-    // Found on a real product page: the raw numbers 50 and 20 read as "high to low". Different families, or two temperature scales,
+    // Found on a real speaker page: the raw numbers 50 and 20 read as "high to low". Different families, or two temperature scales,
     // are not comparable, so those are left alone.
     if (m.groups.u1) {
       const a = unitScale(m.groups.u1), b = unitScale(m.groups.u2);
@@ -44,6 +44,9 @@ export function checkRangeOrder(text) {
     if (lo <= hi) continue;
     // "24V to 12V" with volts on both sides names a conversion (a step-down converter), not a range.
     if (/\d\s*V\s*to\b/i.test(m[0])) continue;
+    // "Input: 220 to 110 V" between two mains voltages is a dual-voltage label (a list of supported supplies), not a transposed range.
+    // The dash form ("220-110 V") is still flagged: nobody writes a supply list that way.
+    if (/\bto\b/i.test(m[0]) && /^v$/i.test(m.groups.u2) && [100, 110, 115, 120, 127, 200, 208, 220, 230, 240].includes(lo) && [100, 110, 115, 120, 127, 200, 208, 220, 230, 240].includes(hi)) continue;
     flags.push({
       kind: 'reversed-range',
       claimText: m[0],
@@ -69,6 +72,8 @@ export function checkPowerTriplet(text, {tolerance = 0.03} = {}) {
     // Words that mean the figures are not one operating point: a maximum, a peak, a surge, "up to", a negotiated USB-PD profile.
     // (Found on real pages: "100W max, 5V, 2.4A" is one profile of a USB-C port; "5500W (Up to 100A)" mixes an inverter and a charger.)
     if (/\b(?:max|maximum|peak|surge|up to|upto|pd|programmable|input|charger|charging)\b/i.test(line)) continue;
+    // Three-phase and multi-rail nameplates: real power is not V x A of one phase or rail (three phase gives about 1.73 x V x A).
+    if (/\b(?:three[- ]phase|3[- ]?phase|3ph|dual[- ]rail|multi[- ]rail|rails?|phases?)\b|√3/i.test(line)) continue;
     const product = volts[0] * amps[0];
     if (!(product > 0) || watts[0] <= product * (1 + tolerance)) continue;
     flags.push({
@@ -89,6 +94,8 @@ export function checkCountTimesCapacity(text, {tolerance = 0.03} = {}) {
   let m;
   while ((m = re.exec(String(text || ''))) !== null) {
     if (m[3].toLowerCase() !== m[5].toLowerCase()) continue;
+    // "(4500 mAh usable)" or "typical" is not the pack total, so it need not equal count x capacity.
+    if (NOT_PLAIN_TOTAL.test(String(text).slice(m.index, m.index + m[0].length + 30))) continue;
     const expected = Number(m[1]) * Number(m[2]), stated = Number(m[4]);
     if (!(expected > 0) || !(stated > 0) || Math.abs(expected - stated) / Math.max(expected, stated) <= tolerance) continue;
     // A pack of N where the page states the PER-UNIT figure beside the count is not a mismatch.
@@ -111,7 +118,8 @@ export function checkSumOfParts(text, {tolerance = 0.02} = {}) {
   for (const raw of String(text || '').split(/\r?\n/)) {
     // "$210 + $140" is read as "210 USD + 140 USD"
     const line = raw.replace(/\$\s?(\d+(?:\.\d+)?)/g, '$1 USD');
-    if (line.length > 400) continue;
+    // (a price list with tax, shipping, a discount or a fee is not a plain sum either)
+    if (line.length > 400 || NOT_PLAIN_TOTAL.test(line.replace(/USD/g, '')) || (/USD/.test(line) && /\b(?:tax|shipping|fee|discount|off|free)\b/i.test(line))) continue;
     // Not inside a word or code ("Aurora Gold(D9A63A+9675CD)" is a colour code, not 63 A + 9675).
     const expr = new RegExp(String.raw`(?<![\w#])((?:${NUM})(?:\s*${UNIT})?(?:\s*\+\s*(?:${NUM})(?:\s*${UNIT})?)+)\s*${UNIT}?(?![\w])`, 'i').exec(line);
     if (!expr) continue;
@@ -212,14 +220,17 @@ export function checkWeightVsDensity(text, {tolerance = 0.03} = {}) {
 const NUMC = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
 const numOf = s => Number(String(s).replace(/,/g, ''));
 // Words that mean a stated total is not simply the arithmetic of the parts (tax, shipping, optional extras, bonus items).
-const NOT_PLAIN_TOTAL = /\$|€|£|\b(?:tax|shipping|plus|extra|bonus|free|optional|add(?:itional)?|excluding|including|approx|up to|max|peak)\b/i;
+// ("tax", "shipping" and "free" only matter next to a price, and a price is already caught by the currency symbol; "Shipping weight" and
+// "Package weight" are ordinary labels, so those words are NOT in this list.)
+const MONEYISH = /\b(?:tax|shipping|fees?|handling|discount|free)\b/i;
+const NOT_PLAIN_TOTAL = /\$|€|£|\b(?:plus|extra|bonus|optional|add(?:itional)?|excluding|including|approx|up to|max|peak|gross|usable|typical|nominal|rated|combined with)\b/i;
 
 /** "12 bars at 40 g each, for a total of 600 g": a count times an each-figure against a stated total. */
 export function checkEachTotal(text, {tolerance = 0.02} = {}) {
   const flags = [];
   for (const raw of String(text || '').split(/\r?\n|(?<=[.!?])\s+(?=[A-Z])/)) {
     const line = raw.trim();
-    if (line.length > 300 || NOT_PLAIN_TOTAL.test(line)) continue;
+    if (line.length > 300 || NOT_PLAIN_TOTAL.test(line) || MONEYISH.test(line)) continue;
     const m = new RegExp(String.raw`(?<![\d.,])(${NUMC})\s+(?:[A-Za-z-]+\s+){0,3}?(?:at|with|of)\s+(${NUMC})\s*([A-Za-z%]{0,8})\s+each\b([^.]*?)\b(?:total(?:\s+of)?|giving|delivering|for)\s*:?\s*(${NUMC})\s*([A-Za-z%]{0,8})|(?<![\d.,])(${NUMC})\s+(?:[A-Za-z-]+\s+){0,3}?(?:at|with|of)\s+(${NUMC})\s*([A-Za-z%]{0,8})\s+each\b[^.]*?\b(${NUMC})\s*([A-Za-z%]{0,8})\s+(?:in\s+)?total\b`, 'i').exec(line);
     if (!m) continue;
     const [count, each, eachUnit, total, totalUnit] = m[1]
@@ -227,6 +238,10 @@ export function checkEachTotal(text, {tolerance = 0.02} = {}) {
       : [numOf(m[7]), numOf(m[8]), m[9], numOf(m[10]), m[11]];
     // Only compare like with like: the total is in the each-figure's unit (or both are unitless counts).
     if ((eachUnit || totalUnit) && eachUnit.toLowerCase() !== totalUnit.toLowerCase()) continue;
+    // Another figure between "each" and the total ("3 bulbs at 10 W each and a 5 W adapter, for a total of 35 W") is another part
+    // of that total, so count x each alone is the wrong comparison.
+    const between = m[1] ? m[4] : line.slice(line.search(/\beach\b/i) + 4, line.lastIndexOf(m[10]));
+    if (/\d/.test(between || '')) continue;
     const product = count * each;
     if (!(product > 0) || !(total > 0) || Math.abs(product - total) / Math.max(product, total) <= tolerance) continue;
     flags.push({
@@ -245,12 +260,14 @@ export function checkListedSum(text, {tolerance = 0.02} = {}) {
   const flags = [];
   for (const raw of String(text || '').split(/\r?\n|(?<=[.!?])\s+(?=[A-Z])/)) {
     const line = raw.trim();
-    if (line.length > 300 || NOT_PLAIN_TOTAL.test(line)) continue;
+    if (line.length > 300 || NOT_PLAIN_TOTAL.test(line) || MONEYISH.test(line)) continue;
     const t = new RegExp(String.raw`(?:(?:for\s+)?a\s+)?total(?:\s+of)?\s*:?\s*(${NUMC})\s*([A-Za-z%]{1,8})?|(${NUMC})\s*([A-Za-z%]{1,8})?\s+(?:in\s+)?total\b`, 'i').exec(line);
     if (!t) continue;
     const total = numOf(t[1] ?? t[3]);
     const unit = (t[2] ?? t[4] ?? '').toLowerCase();
     const before = line.slice(0, t.index);
+    // "The 3 Series", "Model 4", "Gen 2", "No. 5": a model number before the list is not one of the parts.
+    if (/\b\d+\s+(?:series|model|gen|generation|version|edition|pro|max|plus|mini)\b|\b(?:model|gen|generation|version|no\.?|#)\s*\d/i.test(before)) continue;
     if (/\b(?:each|per|every)\b|\d\s*[x×]\s*\d|[+=]/i.test(before)) continue; // products and explicit sums are other checks
     const parts = [...before.matchAll(new RegExp(String.raw`(?<![\d.,A-Za-z-])(${NUMC})\s*([A-Za-z%]{0,8})`, 'g'))].map(x => ({v: numOf(x[1]), u: x[2].toLowerCase()}));
     if (parts.length < 2 || parts.length > 6) continue;

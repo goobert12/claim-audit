@@ -70,6 +70,22 @@ export function conversionPairs(text) {
     }
   }
 
+  // The same dimension set written around a slash instead of brackets: "7 x 4.5 in / 18 x 12 cm". One real product page used this
+  // form for about twenty rows, so a wrong column in it was invisible.
+  const NUMX = String.raw`\d+(?:\.\d+)?\s*[WHDL]?\s*`;
+  const dimsSlash = new RegExp(String.raw`(?<![\d.])((?:${NUMX}(?:x|\u00d7)\s*)+\d+(?:\.\d+)?)\s*[WHDL]?\s*(in|inches|cm|mm)\s*/\s*((?:${NUMX}(?:x|\u00d7)\s*)+\d+(?:\.\d+)?)\s*[WHDL]?\s*(in|inches|cm|mm)(?![A-Za-z])`, 'gi');
+  while ((m = dimsSlash.exec(src)) !== null) {
+    const from = m[2].toLowerCase().replace('inches', 'in'), to = m[4].toLowerCase().replace('inches', 'in');
+    if (from === to) continue;
+    const left = m[1].split(/\s*(?:x|\u00d7)\s*/i).map(s => Number(String(s).replace(/[^\d.]/g, '')));
+    const right = m[3].split(/\s*(?:x|\u00d7)\s*/i).map(s => Number(String(s).replace(/[^\d.]/g, '')));
+    if (left.length !== right.length) continue;
+    for (let i = 0; i < left.length; i += 1) {
+      if (!Number.isFinite(left[i]) || !Number.isFinite(right[i])) continue;
+      pairs.push({kind: 'dimension-set', indexInSet: i, stated: left[i], fromUnit: from, statedOther: right[i], toUnit: to, raw: m[0]});
+    }
+  }
+
   // Temperature ranges: "-4\u00b0F to 131\u00b0F (-20\u00b0C to 55\u00b0C)".
   const temps = /(-?\d+(?:\.\d+)?)\s*\u00b0?\s*([FC])\s*(?:to|-|\u2013)\s*(-?\d+(?:\.\d+)?)\s*\u00b0?\s*\2\s*\((-?\d+(?:\.\d+)?)\s*\u00b0?\s*([FC])\s*(?:to|-|\u2013)\s*(-?\d+(?:\.\d+)?)\s*\u00b0?\s*\5\s*\)/gi;
   while ((m = temps.exec(src)) !== null) {
@@ -172,7 +188,7 @@ export function conversionPairs(text) {
     ['btu', 'btu(?:/h(?:r|our)?|\\s*per\\s*hour)?', 'w', 'watts?|w'],
     ['qt', 'qts?|quarts?', 'l', 'lit(?:er|re)s?|l'],
     ['sqft', 'sq\\.?\\s?ft|square\\s+(?:feet|foot)|ft2|ft²', 'sqm', 'sq\\.?\\s?m|square\\s+met(?:er|re)s?|m2|m²'],
-    ['kg', 'kilograms?|kg', 'g', 'grams?|g'],
+    ['kg', 'kilograms?|kgs?', 'g', 'grams?|g'],
     ['l', 'lit(?:er|re)s?|l', 'ml', 'milli(?:lit(?:er|re))s?|ml'],
     ['l', 'lit(?:er|re)s?|l', 'floz', 'fl\\.?\\s?oz|fluid\\s+ounces?'],
     // "fl oz" and, because the other side is millilitres, a bare "oz" can only mean fluid ounces.
@@ -185,18 +201,25 @@ export function conversionPairs(text) {
       const NUMBER = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
       const re = new RegExp(String.raw`(?<![\d.,/])(?<!(?:lbs?|pounds?)\.?\s*)(${NUMBER})\s*(?:${fromRe})\.?(?![A-Za-z])\s*(?:\(|/|=)\s*(?:about|approx\.?|approximately|around|~|≈)?\s*(${NUMBER})\s*(?:${toRe})(?![A-Za-z])\)?`, 'gi');
       while ((m = re.exec(src)) !== null) {
+        // BTU/h beside watts is a unit identity only for a resistance heater. For cooling, air conditioning and heat pumps the BTU/h
+        // figure is heat MOVED and the watts are electrical input, so they legitimately differ by the COP (9000 BTU/h on 800 W).
+        if (fromU === 'btu' || toU === 'btu') {
+          const ls = src.lastIndexOf('\n', m.index) + 1, le = src.indexOf('\n', m.index);
+          if (/cool|air.?condition|\ba\/c\b|heat pump|inverter|dehumidif|refrigerat|fridge|freezer|mini.?split|split system|\bEER\b|\bSEER\b/i.test(src.slice(ls, le < 0 ? undefined : le))) continue;
+        }
         pairs.push({kind: 'everyday', stated: Number(m[1].replace(/,/g, '')), fromUnit: fromU, statedOther: Number(m[2].replace(/,/g, '')), toUnit: toU, raw: m[0]});
       }
     }
   }
 
   // Weight: "31.5 lbs. (14.3 kg)".
-  const weight = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)\.?\s*\((\d+(?:\.\d+)?)\s*(kg|g)\)/gi;
+  // ("kgs" is common on retail pages and is the same unit.)
+  const weight = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)\.?\s*\((\d+(?:\.\d+)?)\s*(kgs?|g)\)/gi;
   while ((m = weight.exec(src)) !== null) {
     pairs.push({
       kind: 'weight',
       stated: Number(m[1]), fromUnit: 'lb',
-      statedOther: Number(m[2]), toUnit: m[3].toLowerCase(),
+      statedOther: Number(m[2]), toUnit: m[3].toLowerCase().replace(/^kgs$/, 'kg'),
       raw: m[0],
     });
   }
