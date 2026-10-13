@@ -25,7 +25,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildInventory} from './claim-inventory.mjs';
 import {checkClaim, checkEnergyConsistency, checkEnergyTriplets} from './claim-arithmetic.mjs';
-import {checkConsistency} from './claim-consistency.mjs';
+import {checkConsistency, checkWeightOutliers} from './claim-consistency.mjs';
 import {checkConversions} from './claim-conversions.mjs';
 import {detectLayout, extractSpecValue} from './spec-layout.mjs';
 
@@ -119,6 +119,8 @@ const findings = [
   ...conversionFlags.map(f => ({type: 'conversion-mismatch', severity: 'high', claim: f.raw, detail: f.arithmetic, note: f.note})),
   // Volts x amp-hours against the stated watt-hours, from labelled rows and from compact titles like "48V 15Ah 480Wh".
   ...[...checkEnergyConsistency(body), ...checkEnergyTriplets(body)].map(f => ({type: 'energy-arithmetic', severity: 'high', claim: f.claimText, detail: f.arithmetic, note: f.note})),
+  // Page-level: a weight row far out of line with the page's other weight rows (a unit typo with no second unit to prove it).
+  ...checkWeightOutliers(body).map(f => ({type: 'internal-consistency', severity: 'high', claim: f.claimText, detail: f.arithmetic, note: f.note})),
   // Checks the page can fail against itself: reversed range, watts above volts x amps, total vs parts, volume vs box, weight vs density.
   // Run line by line, so a number at the end of one line is never paired with a unit on the next.
   ...[...new Map(body.split(/\r?\n/).flatMap(l => (l.length <= 400 && /\d/.test(l) ? checkConsistency(l) : []))
@@ -160,7 +162,20 @@ lines.push(`**Layout detected:** \`${report.layout}\``);
 lines.push('');
 lines.push('## Result');
 lines.push('');
-if (!findings.length) {
+// A page that yields no specification row and no two-unit conversion was not actually checked, whatever it was labelled:
+// a table whose values are built by JavaScript leaves labels without values, and a split grid leaves rows unreadable.
+const unreadable = report.specRowsRead === 0 && report.conversionsChecked === 0;
+if (!findings.length && unreadable) {
+  lines.push('**THIS PAGE COULD NOT BE READ - do not treat this as a clean result.**');
+  lines.push('');
+  lines.push(`${report.claimsFound} claims were inventoried, but **no`);
+  lines.push('specification row was parsed, and no two-unit conversion could be found**, so');
+  lines.push('nothing on this page was actually checked against the page\'s own numbers.');
+  lines.push('');
+  lines.push('A page that fails to parse and a page with no defects look identical in a summary line, and they mean opposite');
+  lines.push('things. Check that the capture contains the specification table itself, and that the table is text rather than');
+  lines.push('an image or a lazily-rendered widget.');
+} else if (!findings.length) {
   lines.push('**No defect found on this page.**');
   lines.push('');
   lines.push(`${report.claimsFound} claims were inventoried, and ${report.conversionsChecked} two-unit`);

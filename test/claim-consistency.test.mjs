@@ -190,3 +190,29 @@ test('kg/g, litres/ml and fluid ounces/ml are checked, with thousands commas and
   assert.equal(checkConversions('The kettle boils 1.7 litres (about 57 fl oz) of water.').flags.length, 0);
   assert.equal(checkConversions('Capacity 2 litres (2,000 ml)').flags.length, 0);
 });
+
+// ---- findings from a review of ten more real pages, 2026-10-13 ------------------------------------
+
+import {checkWeightOutliers} from '../src/claim-consistency.mjs';
+import {checkClaim} from '../src/claim-arithmetic.mjs';
+
+test('a row naming a hotend and a heatbed is judged by whichever it names first', () => {
+  assert.equal(checkClaim('hotend/heatbed temp 290 \u00b0C / 120 \u00b0C').length, 0, 'was a false alarm: the bed ceiling judged the hotend');
+  assert.equal(checkClaim('Max nozzle temperature | 290 \u00b0C / 554 \u00b0F').length, 0);
+  assert.equal(checkClaim('Bed temperature: 60 \u00b0C; hotend 250 \u00b0C').length, 0, 'bed named first: 60 is a bed figure');
+  assert.equal(checkClaim('Max heatbed temperature: 300 \u00b0C').length, 1, 'a genuinely impossible bed temperature is still caught');
+});
+
+test('a dimension set with W / H / D axis letters is converted and checked', () => {
+  assert.equal(checkConversions('7.12 W x 9 H x 1.37 D inches (181 W x 229 H x 37 D mm)').flags.length, 1, 'was never checked: 1.37 in is 34.8 mm');
+  assert.equal(checkConversions('7.12 W x 9 H x 1.43 D inches (181 W x 229 H x 36 D mm)').flags.length, 0);
+});
+
+test('a weight row about a thousand times off its sibling weight rows is flagged as a likely unit typo', () => {
+  const tent = ['Trail Weight:3.02kg', 'Fast Fly / Shelter Mode Weight:2.49 g', 'Total Weight:3.25kg', 'Packed Weight: 3.7 kg'].join('\n');
+  assert.equal(checkWeightOutliers(tent).length, 1);
+  assert.match(checkWeightOutliers(tent)[0].arithmetic, /2\.49 g/);
+  assert.equal(checkWeightOutliers(['Weight: 3.2 kg', 'Trail Weight: 3.0 kg', 'Packed Weight: 3.6 kg', 'Pole Weight: 0.4 kg'].join('\n')).length, 0);
+  assert.equal(checkWeightOutliers(['Weight: 3.2 kg', 'Trail Weight: 3.0 kg']).length, 0, 'too few rows to compare');
+  assert.equal(checkWeightOutliers(['Weight: 3.2 kg', 'Trail Weight: 3.0 kg', 'Stakes weight: 5 g', 'Packed Weight: 3.6 kg']).length, 0, 'stakes are excluded');
+});

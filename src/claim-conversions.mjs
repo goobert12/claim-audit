@@ -47,10 +47,12 @@ export function conversionPairs(text) {
   const pairs = [];
 
   // Length: "11.4 x 8.2 x 7.9 in (290 x 208 x 200 mm)" -- element-wise.
-  const dims = /((?:\d+(?:\.\d+)?\s*(?:x|\u00d7)\s*)+\d+(?:\.\d+)?)\s*(in|inches|cm|mm)\s*\(([^)]+)\)/gi;
+  // Each figure may carry an axis letter ("7.12 W x 9 H x 1.37 D inches (181 W x 229 H x 37 D mm)"); the letters used to defeat the
+  // match, so a wrong depth went unchecked on a real kitchen-scale page.
+  const dims = /((?:\d+(?:\.\d+)?\s*[WHDL]?\s*(?:x|\u00d7)\s*)+\d+(?:\.\d+)?)\s*[WHDL]?\s*(in|inches|cm|mm)\s*\(([^)]+)\)/gi;
   let m;
   while ((m = dims.exec(src)) !== null) {
-    const left = m[1].split(/\s*(?:x|\u00d7)\s*/i).map(Number);
+    const left = m[1].split(/\s*(?:x|\u00d7)\s*/i).map(s => Number(String(s).replace(/[^\d.]/g, '')));
     const right = m[3].split(/\s*(?:x|\u00d7)\s*/i).map(s => Number(String(s).replace(/[^\d.]/g, '')));
     const rightUnitMatch = /(mm|cm|in|inches)\b/i.exec(m[3]);
     if (!rightUnitMatch || left.length !== right.length) continue;

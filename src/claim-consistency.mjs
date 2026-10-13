@@ -309,6 +309,42 @@ export function checkChargeVoltEnergy(text, {tolerance = 0.08} = {}) {
   return flags;
 }
 
+/**
+ * A weight row a thousand times lighter (or heavier) than its sibling weight rows on the same page is most likely a unit typo:
+ * "Trail Weight:3.02kg", "Total Weight:3.25kg", "Fast Fly Weight:2.49 g" (a tent cannot weigh 2.49 g). There is no second unit to
+ * cross-check, so this compares the page's own rows with each other. Page-level: pass the whole page text.
+ */
+export function checkWeightOutliers(pageText, {factor = 800} = {}) {
+  const rows = [];
+  for (const raw of String(pageText || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length > 200) continue;
+    const m = new RegExp(String.raw`^(?<label>[^:|\d]{0,60}?\b(?:weight|mass)\b[^:|\d]{0,30})\s*[:|]\s*(?<v>${NUMC})\s*(?<u>kg|g|lbs?|oz)\b`, 'i').exec(line.replace(/^[-•*\s]+/, ''));
+    if (!m) continue;
+    // per-item, load and rating rows are not the product's own weight
+    if (/\b(?:per|max(?:imum)?|capacity|payload|limit|rating|load|take-?off|each|without|excluding|stakes?|pegs?)\b/i.test(m.groups.label)) continue;
+    const v = numOf(m.groups.v), u = m.groups.u.toLowerCase();
+    const grams = u === 'kg' ? v * 1000 : u === 'g' ? v : u.startsWith('lb') ? v * 453.59237 : v * 28.349523;
+    if (grams > 0) rows.push({line, grams, text: `${m.groups.v} ${m.groups.u}`});
+  }
+  if (rows.length < 3) return [];
+  const sorted = rows.map(r => r.grams).sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const flags = [];
+  for (const r of rows) {
+    const ratio = median / r.grams;
+    if (ratio < factor && ratio > 1 / factor) continue;
+    flags.push({
+      kind: 'weight-outlier',
+      claimText: r.line,
+      arithmetic: `${r.text} is about ${Math.round(Math.max(ratio, 1 / ratio))} times ${ratio > 1 ? 'lighter' : 'heavier'} than the page's other weight rows (typically about ${Math.round(median)} g)`,
+      note: 'A weight this far from the product\'s other stated weights is most likely a unit typo (g for kg, or the reverse). There is no second unit on the line to prove it, so check the page.',
+      relativeError: Math.min(1, Math.abs(Math.log10(ratio)) / 4),
+    });
+  }
+  return flags;
+}
+
 export function checkConsistency(text) {
   return [...checkRangeOrder(text), ...checkPowerTriplet(text), ...checkSumOfParts(text), ...checkCountTimesCapacity(text), ...checkVolumeVsDimensions(text), ...checkWeightVsDensity(text), ...checkEachTotal(text), ...checkListedSum(text), ...checkChargeVoltEnergy(text)];
 }

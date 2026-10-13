@@ -58,7 +58,7 @@ const PROPERTY_ALIASES = Object.freeze([
   [/tensile\s+strength|ultimate\s+tensile/i, 'tensileStrength'],
   [/elongation(?:\s+at\s+break)?/i, 'elongationAtBreak'],
   [/density/i, 'density'],
-  [/nozzle|extrusion\s+temperature|print\s+temperature/i, 'nozzleTemperature'],
+  [/nozzle|hot\s*end|extrusion\s+temperature|print\s+temperature/i, 'nozzleTemperature'],
   [/\bbed\b|build\s+plate|heat\s*bed/i, 'bedTemperature'],
   [/anneal/i, 'annealingTemperature'],
   // Electrical aliases. These are the most collision-prone in the file, and the first version got it
@@ -124,7 +124,20 @@ const UNIT_SCALES = Object.freeze({
 });
 
 export function propertyFor(text) {
-  for (const [re, key] of PROPERTY_ALIASES) if (re.test(String(text || ''))) return key;
+  const t = String(text || '');
+  for (const [re, key] of PROPERTY_ALIASES) {
+    if (!re.test(t)) continue;
+    // "hotend/heatbed temp 290 C / 120 C": a row that names both a nozzle and a bed is about whichever it names FIRST (the figure
+    // that follows is that one's). The table order alone let the bed bound (250 C) judge a hotend figure.
+    if (key === 'nozzleTemperature' || key === 'bedTemperature') {
+      const other = PROPERTY_ALIASES.find(([, k]) => k !== key && (k === 'nozzleTemperature' || k === 'bedTemperature'));
+      if (other && other[0].test(t)) {
+        const here = t.search(re), there = t.search(other[0]);
+        if (there >= 0 && there < here) return other[1];
+      }
+    }
+    return key;
+  }
   return null;
 }
 
