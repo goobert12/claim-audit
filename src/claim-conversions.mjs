@@ -73,6 +73,24 @@ export function conversionPairs(text) {
     });
   }
 
+  // A SINGLE temperature in two scales: "30\u00b0F (-1\u00b0C)", "20\u00b0F / -7\u00b0C". Sleeping bags, batteries and
+  // coolers state one rating this way. 7 of 59 real pages carried it and none were read. The numbers inside a RANGE
+  // ("131\u00b0F (-20\u00b0C to 55\u00b0C)") are not single pairs and must not be paired with each other, so a match that sits
+  // at the end of an "A to B" or just before a "to B" is skipped.
+  const singleTemp = /(-?\d+(?:\.\d+)?)\s*\u00b0?\s*([FC])\b\s*(?:\/|\()\s*(-?\d+(?:\.\d+)?)\s*\u00b0?\s*([FC])\b\)?/gi;
+  while ((m = singleTemp.exec(src)) !== null) {
+    if (m[2].toUpperCase() === m[4].toUpperCase()) continue;
+    const before = src.slice(Math.max(0, m.index - 14), m.index);
+    const after = src.slice(m.index + m[0].length, m.index + m[0].length + 14);
+    if (/(?:\bto|[-\u2013\u2014~])\s*$/i.test(before) || /^\s*(?:\bto\b|[-\u2013\u2014~]\s*-?\d)/i.test(after)) continue;
+    pairs.push({
+      kind: 'temperature',
+      stated: Number(m[1]), fromUnit: m[2].toUpperCase(),
+      statedOther: Number(m[3]), toUnit: m[4].toUpperCase(),
+      raw: m[0],
+    });
+  }
+
   // Torque: "44.3 inch\u00b7lbs / 5 N\u00b7m".
   const torque = /(\d+(?:\.\d+)?)\s*(?:inch[\u00b7\s-]*l(?:bs?|bf)|in[\u00b7\s-]*lbs?)\s*\/\s*(\d+(?:\.\d+)?)\s*N[\u00b7\s-]*m/gi;
   while ((m = torque.exec(src)) !== null) {
@@ -163,7 +181,7 @@ export function checkConversions(text, {tolerance = 0.02} = {}) {
       // A temperature near zero makes a relative tolerance meaningless: 15 F is -9.44 C, so a page that rounds
       // it to -9 C is correct, yet that is a 4.7% 'error'. A rounded whole-degree figure is within half a degree
       // of the exact conversion, so for temperatures the gap must also exceed that before it is a real mismatch.
-      const roundingGap = pair.kind === 'temperature-range' ? Math.abs(exp - b) <= 0.55 : false;
+      const roundingGap = (pair.kind === 'temperature-range' || pair.kind === 'temperature') ? Math.abs(exp - b) <= 0.55 : false;
       if (relError > tolerance && !roundingGap) {
         flags.push({
           ...record,

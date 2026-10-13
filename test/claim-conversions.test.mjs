@@ -71,6 +71,24 @@ test('a whole-degree temperature near zero is NOT flagged, but a genuine one-deg
   assert.equal(flags[0].statedOther, -9);
 });
 
+test('a single temperature stated in two scales is read, and only a real mismatch is flagged', () => {
+  // Sleeping bags and batteries state one rating this way. 7 of 59 real pages carried it and none were read.
+  for (const ok of ['Rating 30\u00b0F (-1\u00b0C)', 'Rating 20\u00b0F / -7\u00b0C', 'Rating 5\u00b0F (-15\u00b0C)', 'Rating 14\u00b0F (-10\u00b0C)']) {
+    const r = checkConversions(ok);
+    assert.equal(r.checked.length, 1, `should be read: ${ok}`);
+    assert.deepEqual(r.flags, [], `should not be flagged: ${ok}`);
+  }
+  const bad = checkConversions('Rating 30\u00b0F (-5\u00b0C)');
+  assert.equal(bad.flags.length, 1);
+  assert.equal(bad.flags[0].statedOther, -5);
+});
+
+test('the numbers inside a temperature RANGE are not paired with each other as single temperatures', () => {
+  const r = checkConversions('Range -4\u00b0F to 131\u00b0F (-20\u00b0C to 55\u00b0C)');
+  assert.equal(r.checked.length, 2, 'exactly the two ends of the range');
+  assert.deepEqual(r.flags, []);
+});
+
 test('rounding a page actually does is NOT flagged', () => {
   // "14.3 kg" for 31.5 lb is 31.526 lb: correct to the precision chosen. A tool
   // that flagged this would fire on nearly every honest spec sheet.
