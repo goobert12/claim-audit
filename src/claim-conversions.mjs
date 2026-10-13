@@ -79,6 +79,23 @@ export function conversionPairs(text) {
     });
   }
 
+  // A pair of temperature ranges around a SLASH with a tilde, dash or en-dash inside each: "-10°C~45°C / 14°F-113°F".
+  // The parenthetical block above misses this shape, so a page stating both its charge and discharge ranges this way produced
+  // zero temperature pairs. A checker that silently skips a whole shape reads as a cleaner page than the truth.
+  const tempRangeSlash = /(-?\d+(?:\.\d+)?)\s*\u00b0?\s*([FC])\s*[~\u2013\u2014-]\s*(-?\d+(?:\.\d+)?)\s*\u00b0?\s*\2\s*\/\s*(-?\d+(?:\.\d+)?)\s*\u00b0?\s*([FC])\s*[~\u2013\u2014-]\s*(-?\d+(?:\.\d+)?)\s*\u00b0?\s*\5/gi;
+  while ((m = tempRangeSlash.exec(src)) !== null) {
+    // Both sides must name DIFFERENT scales, or this is the same scale written twice
+    // and there is nothing to convert.
+    if (m[2].toUpperCase() === m[5].toUpperCase()) continue;
+    pairs.push({
+      kind: 'temperature-range',
+      stated: Number(m[1]), fromUnit: m[2].toUpperCase(),
+      statedOther: Number(m[4]), toUnit: m[5].toUpperCase(),
+      statedHigh: Number(m[3]), statedHighOther: Number(m[6]),
+      raw: m[0],
+    });
+  }
+
   // A temperature range whose FIRST number carries no scale, written around a slash or in parentheses:
   // "20 - 30 C / 68 - 90 F", "20-30°C / 68-86°F", "20 - 30 C (68 - 86 F)". The earlier blocks all need a scale
   // letter after EACH number, so this common form was invisible: a wrong "90 F" beside "30 C" (30 C is 86 F) passed

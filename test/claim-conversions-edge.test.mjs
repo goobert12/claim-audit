@@ -158,3 +158,11 @@ test('whole-degree temperatures: a gap that rounding of both figures explains is
   assert.equal(checkConversions('Operating temperature: -10°C (15°F)').flags.length, 0);
   assert.equal(checkConversions('Operating temperature: -10°C (17°F)').flags.length, 1);
 });
+
+test('two temperature ranges around a slash, with a tilde inside each, are read and checked', () => {
+  const t = 'Discharge Temperature -20°C~45°C / -4°F-113°F';
+  assert.equal(conversionPairs(t).filter(p => p.kind === 'temperature-range').length, 1, 'this form once produced zero pairs');
+  assert.equal(checkConversions(t).flags.length, 0);
+  assert.equal(checkConversions('Charge Temperature -10°C~45°C / 17°F-113°F').flags.length, 1);
+  assert.equal(checkConversions('Charge Temperature -10°C~45°C / 14°F-120°F').flags.length, 1, 'a wrong upper end is caught too');
+});
