@@ -23,6 +23,9 @@ function unitScale(raw) {
   return SCALES[u] ? {family: SCALES[u][0], unit: u, scale: SCALES[u][1]} : {family: u, unit: u, scale: 1};
 }
 
+// Common low-voltage rails. A supply feeding a LOWER rail ("5-3V") is a conversion, not a transposed range.
+const LO_VOLT_RAILS = new Set([1.2, 1.5, 1.8, 2.5, 3, 3.3, 5, 6, 9, 12, 15, 18, 19, 20, 24, 28, 36, 48]);
+
 /** A range written high-to-low ("220-110 V", "12 to 5 V", "55 to -20 C") reads as a typo for low-to-high. */
 export function checkRangeOrder(text) {
   const flags = [];
@@ -44,6 +47,10 @@ export function checkRangeOrder(text) {
     if (lo <= hi) continue;
     // "24V to 12V" with volts on both sides names a conversion (a step-down converter), not a range.
     if (/\d\s*V\s*to\b/i.test(m[0])) continue;
+    // The same conversion written with a hyphen: "5-3V" is a 5 V supply feeding a 3 V rail. Restricted to the HYPHEN form and to
+    // common low-voltage rails (up to 48 V), so a transposed range at mains level ("220-110 V") is still caught and the word form
+    // ("from 5 V up to 3 V") is still flagged.
+    if (!/\b(?:to|up)\b/i.test(m[0]) && LO_VOLT_RAILS.has(lo) && LO_VOLT_RAILS.has(hi) && Math.max(lo, hi) <= 48 && /^v$/i.test(m.groups.u2)) continue;
     // "Input: 220 to 110 V" between two mains voltages is a dual-voltage label (a list of supported supplies), not a transposed range.
     // The dash form ("220-110 V") is still flagged: nobody writes a supply list that way.
     if (/\bto\b/i.test(m[0]) && /^v$/i.test(m.groups.u2) && [100, 110, 115, 120, 127, 200, 208, 220, 230, 240].includes(lo) && [100, 110, 115, 120, 127, 200, 208, 220, 230, 240].includes(hi)) continue;
@@ -266,6 +273,8 @@ export function checkListedSum(text, {tolerance = 0.02} = {}) {
     const total = numOf(t[1] ?? t[3]);
     const unit = (t[2] ?? t[4] ?? '').toLowerCase();
     const before = line.slice(0, t.index);
+    // A FRACTION is one number, not two parts: "Resistor Kit - 1/4W (500 total)" was read as 1 + 4 = 5 against a total of 500.
+    if (/\d\s*\/\s*\d/.test(before)) continue;
     // "The 3 Series", "Model 4", "Gen 2", "No. 5": a model number before the list is not one of the parts.
     if (/\b\d+\s+(?:series|model|gen|generation|version|edition|pro|max|plus|mini)\b|\b(?:model|gen|generation|version|no\.?|#)\s*\d/i.test(before)) continue;
     if (/\b(?:each|per|every)\b|\d\s*[x×]\s*\d|[+=]/i.test(before)) continue; // products and explicit sums are other checks
