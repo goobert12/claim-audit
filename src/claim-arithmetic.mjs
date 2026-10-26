@@ -24,8 +24,8 @@
  */
 export const PROPERTY_BOUNDS = Object.freeze({
   density: {min: 0.05, max: 25, unit: 'g/cm3', because: 'aerogels to osmium; nothing printed is outside this'},
-  youngsModulus: {min: 0.001, max: 1200, unit: 'GPa', because: 'soft elastomers to diamond (1050-1200 GPa); no material exceeds this'},
-  bendingModulus: {min: 0.001, max: 1200, unit: 'GPa', because: 'same ceiling as Young\u2019s modulus; flexural modulus cannot exceed the stiffest known solid'},
+  youngsModulus: {min: 0.001, max: 1220, unit: 'GPa', because: 'stiffest known bulk material is diamond, published at roughly 1050-1220 GPa depending on source and crystal direction; a value just above this should be read against that spread, not treated as disproven'},
+  bendingModulus: {min: 0.001, max: 1220, unit: 'GPa', because: 'same ceiling as Young\u2019s modulus, for the same reason'},
   tensileStrength: {min: 0.001, max: 10, unit: 'GPa', because: 'gels to the strongest steels and fibres'},
   elongationAtBreak: {min: 0, max: 1500, unit: '%', because: 'brittle ceramics to highly extensible elastomers'},
   nozzleTemperature: {min: 100, max: 500, unit: '\u00b0C', because: 'below 100 nothing melts, above 500 no FDM machine operates'},

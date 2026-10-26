@@ -17,15 +17,18 @@ node src/audit-run.mjs examples/example-capture.md
 
 ## What it catches
 
-A specification table that lists a material's Young's modulus as **2310 GPa**. No material
-is that stiff — diamond is roughly 1050–1200 GPa — so the number cannot be right in the
-unit it claims. It is almost certainly **MPa** mislabelled, which is a factor of 1000:
+A specification table that lists a material's Young's modulus as **2310 GPa**. Diamond, the
+stiffest known bulk material, is published at roughly 1050–1220 GPa depending on source and
+crystal direction — 2310 sits nearly twice past that whole spread, so the number cannot be
+right in the unit it claims. It is almost certainly **MPa** mislabelled, which is a factor
+of 1000:
 
 ```
-2310 GPa is outside 0.001-1200 GPa
-> No material lies outside this range (soft elastomers to diamond (1050-1200 GPa);
-  no material exceeds this). The value is most likely stated in a different unit than
-  the label says.
+2310 GPa is outside 0.001-1220 GPa
+> No material lies outside this range (stiffest known bulk material is diamond, published
+  at roughly 1050-1220 GPa depending on source and crystal direction; a value just above
+  this should be read against that spread, not treated as disproven). The value is most
+  likely stated in a different unit than the label says.
 ```
 
 An engineer reading `2310 GPa` and computing a deflection gets an answer **three orders of

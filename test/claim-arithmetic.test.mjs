@@ -57,7 +57,7 @@ test('a modulus of 2310 GPa is flagged as physically impossible', () => {
   // No conversion applies -- GPa IS the bounds unit -- so the message must state the range test.
   // This assertion previously required "2310 GPa = 2310 GPa", a tautology, so it locked the defect
   // in rather than catching it.
-  assert.match(flags[0].arithmetic, /2310 GPa is outside 0\.001-1200 GPa/);
+  assert.match(flags[0].arithmetic, /2310 GPa is outside 0\.001-1220 GPa/);
   assert.doesNotMatch(flags[0].arithmetic, /2310 GPa = 2310 GPa/);
   assert.match(flags[0].note, /different unit/);
 });
@@ -75,13 +75,13 @@ test('the flag carries its own arithmetic so a human can falsify it', () => {
   // No conversion applies here: the stated unit IS the bounds unit. Reading "1980 GPa = 1980 GPa"
   // is a tautology, and this assertion used to require exactly that -- locking the defect in rather
   // than catching it. The message must state the range test instead.
-  assert.match(flag.arithmetic, /1980 GPa is outside 0\.001-1200 GPa/);
+  assert.match(flag.arithmetic, /1980 GPa is outside 0\.001-1220 GPa/);
   assert.doesNotMatch(flag.arithmetic, /1980 GPa = 1980 GPa/);
 });
 
 test('a conversion that actually happens still shows its working', () => {
   // MPa converts into the GPa bounds unit at x0.001 (UNIT_SCALES), so this exercises the OTHER
-  // branch of the ternary that fixed the tautology. 2,000,000 MPa -> 2000 GPa, outside 0.001-1200.
+  // branch of the ternary that fixed the tautology. 2,000,000 MPa -> 2000 GPa, outside 0.001-1220.
   // My first version of this test used psi, which is not in UNIT_SCALES at all and produced no flag.
   const [flag] = checkClaim('Tensile strength: 2000000 MPa');
   assert.ok(flag, 'a converted value this far out of range should be flagged');
@@ -149,10 +149,26 @@ test('genuine values across real materials are NOT flagged', () => {
     'Recommended Extrusion Temperatures: 215\u00b110\u00b0C',
     'BED: 80-95 \u00b0C',
     'Young\u2019s modulus 1050 GPa',   // diamond, the ceiling
+    'Young\u2019s modulus 1210 GPa',   // real, published diamond figure along a stiffer crystal direction
   ];
   for (const text of real) {
     assert.deepEqual(checkClaim(text), [], `must not flag real value: ${text}`);
   }
+});
+
+test('a real published diamond modulus is not mistaken for a unit error (2026-10-26 fix)', () => {
+  // Diamond is published between roughly 1050 and 1220 GPa depending on source and crystal
+  // direction (UT Dallas: https://www.utdallas.edu/~son051000/my_publications/Enlai_pra2022.pdf).
+  // The bound previously sat at exactly 1200, so a genuine 1210 GPa claim -- inside that real
+  // spread, not above it -- was flagged as "physically impossible." A false accusation is worse
+  // than a missed one, so the ceiling now sits at 1220, and the explanation says a value just
+  // above it falls inside the spread rather than claiming no material can reach it.
+  assert.deepEqual(checkClaim('Young\u2019s modulus 1210 GPa'), []);
+  assert.deepEqual(checkClaim('Bending modulus 1210 GPa'), []);
+  // The actual defect this tool exists for -- a unit label off by 1000x -- must still be caught.
+  const flags = checkClaim('Young\u2019s modulus 2435 GPa');
+  assert.equal(flags.length, 1);
+  assert.doesNotMatch(flags[0].note, /no material exceeds|cannot exceed/i, 'the note must not overclaim beyond the cited spread');
 });
 
 test('temperatures in Fahrenheit are converted before the range check', () => {
