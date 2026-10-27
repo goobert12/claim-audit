@@ -23,14 +23,16 @@
  * a bare number.
  */
 export const PROPERTY_BOUNDS = Object.freeze({
-  density: {min: 0.05, max: 25, unit: 'g/cm3', because: 'aerogels to osmium; nothing printed is outside this'},
-  youngsModulus: {min: 0.001, max: 1220, unit: 'GPa', because: 'stiffest known bulk material is diamond, published at roughly 1050-1220 GPa depending on source and crystal direction; a value just above this should be read against that spread, not treated as disproven'},
-  bendingModulus: {min: 0.001, max: 1220, unit: 'GPa', because: 'same ceiling as Young\u2019s modulus, for the same reason'},
-  tensileStrength: {min: 0.001, max: 10, unit: 'GPa', because: 'gels to the strongest steels and fibres'},
-  elongationAtBreak: {min: 0, max: 1500, unit: '%', because: 'brittle ceramics to highly extensible elastomers'},
-  nozzleTemperature: {min: 100, max: 500, unit: '\u00b0C', because: 'below 100 nothing melts, above 500 no FDM machine operates'},
-  bedTemperature: {min: 0, max: 250, unit: '\u00b0C', because: 'room temperature to near the limit of heated beds'},
-  annealingTemperature: {min: 20, max: 300, unit: '\u00b0C', because: 'below ambient is meaningless, above 300 destroys most polymers'},
+  density: {min: 0.05, max: 25, unit: 'g/cm3', category: 'physical', because: 'aerogels to osmium; nothing printed is outside this'},
+  youngsModulus: {min: 0.001, max: 1220, unit: 'GPa', category: 'physical', because: 'stiffest known bulk material is diamond, published at roughly 1050-1220 GPa depending on source and crystal direction; a value just above this should be read against that spread, not treated as disproven'},
+  bendingModulus: {min: 0.001, max: 1220, unit: 'GPa', category: 'physical', because: 'same ceiling as Young\u2019s modulus, for the same reason'},
+  tensileStrength: {min: 0.001, max: 10, unit: 'GPa', category: 'physical', because: 'gels to the strongest steels and fibres'},
+  elongationAtBreak: {min: 0, max: 1500, unit: '%', category: 'physical', because: 'brittle ceramics to highly extensible elastomers'},
+  // Temperature bounds below are product-category guard rails, not physical law: an FDM printer is a
+  // bounded machine, not "no material exists outside this range" the way diamond's modulus is.
+  nozzleTemperature: {min: 100, max: 500, unit: '\u00b0C', category: 'plausibility', because: 'below 100 nothing melts, above 500 no FDM machine operates'},
+  bedTemperature: {min: 0, max: 250, unit: '\u00b0C', category: 'plausibility', because: 'room temperature to near the limit of heated beds'},
+  annealingTemperature: {min: 20, max: 300, unit: '\u00b0C', category: 'plausibility', because: 'below ambient is meaningless, above 300 destroys most polymers'},
 
   // ---- Electrical specifications (added 2026-10-05 for modular-synth / rack gear) ----
   //
@@ -39,11 +41,11 @@ export const PROPERTY_BOUNDS = Object.freeze({
   // current bound says "a module of this class draws at most this", which is a fact about a product
   // category. Both are useful to a buyer, but only the first is physics, so the `because` lines say
   // which is which rather than implying the same authority.
-  currentDraw: {min: 0, max: 2000, unit: 'mA', because: 'a single Eurorack module drawing over 2 A on one rail is a fault or a misread, not a specification'},
-  supplyCurrent: {min: 0, max: 10000, unit: 'mA', because: 'largest commonly published Eurorack case supply per rail; above this is a typo or a different unit'},
-  railVoltage: {min: 0, max: 48, unit: 'V', because: 'Eurorack rails are 12 V, some systems 15 V, and 48 V is the top of low-voltage DC distribution'},
-  moduleWidth: {min: 1, max: 200, unit: 'HP', because: 'narrowest common module to the widest single module published; a rack row is 84 HP'},
-  frequencyRange: {min: 0.001, max: 100000, unit: 'Hz', because: 'sub-audio modulation up to the top of human hearing and beyond'},
+  currentDraw: {min: 0, max: 2000, unit: 'mA', category: 'plausibility', because: 'a single Eurorack module drawing over 2 A on one rail is a fault or a misread, not a specification'},
+  supplyCurrent: {min: 0, max: 10000, unit: 'mA', category: 'plausibility', because: 'largest commonly published Eurorack case supply per rail; above this is a typo or a different unit'},
+  railVoltage: {min: 0, max: 48, unit: 'V', category: 'plausibility', because: 'Eurorack rails are 12 V, some systems 15 V, and 48 V is the top of low-voltage DC distribution'},
+  moduleWidth: {min: 1, max: 200, unit: 'HP', category: 'plausibility', because: 'narrowest common module to the widest single module published; a rack row is 84 HP'},
+  frequencyRange: {min: 0.001, max: 100000, unit: 'Hz', category: 'plausibility', because: 'sub-audio modulation up to the top of human hearing and beyond'},
 });
 
 /** How a property is named on real pages, mapped to the bounds key. */
@@ -311,6 +313,19 @@ export function checkBounds(claimText, propertyKey = propertyFor(claimText)) {
   return checkBoundsFor(claimText, propertyKey, {...m, value: m.rangeValue});
 }
 
+/**
+ * The lead sentence of a bounds flag has to match what the bound actually claims.
+ * A `physical` bound ("no material exists outside this") is a fact about the world;
+ * a `plausibility` bound ("no product in this category is specified outside this") is
+ * a fact about a product category, and saying "no material" for a temperature or a
+ * current draw is nonsensical -- there's no material being measured at all.
+ */
+function boundsOverclaim(bounds) {
+  return bounds.category === 'plausibility'
+    ? 'No product in this category is specified outside this range'
+    : 'No material lies outside this range';
+}
+
 function checkBoundsFor(claimText, propertyKey, m) {
   const bounds = PROPERTY_BOUNDS[propertyKey];
   // A unit must belong to the property it is read under. "5 A" can never be a nozzle temperature; a long page line that happens to
@@ -350,7 +365,7 @@ function checkBoundsFor(claimText, propertyKey, m) {
       arithmetic: inBoundsUnit === m.value
                     ? `${m.value} ${m.unit} is outside ${bounds.min}-${bounds.max} ${bounds.unit}`
                     : `${m.value} ${m.unit} = ${inBoundsUnit} ${bounds.unit}, which is outside ${bounds.min}-${bounds.max} ${bounds.unit}`,
-      note: `No material lies outside this range (${bounds.because}). The value is most likely stated in a different unit than the label says.`,
+      note: `${boundsOverclaim(bounds)} (${bounds.because}). The value is most likely stated in a different unit than the label says.`,
     }];
   }
   return [];

@@ -171,6 +171,24 @@ test('a real published diamond modulus is not mistaken for a unit error (2026-10
   assert.doesNotMatch(flags[0].note, /no material exceeds|cannot exceed/i, 'the note must not overclaim beyond the cited spread');
 });
 
+test('a plausibility bound (B-96, 2026-10-26) says "no product in this category", not "no material"', () => {
+  // nozzleTemperature, currentDraw and friends are product-category guard rails, not physical
+  // law -- "no material lies outside this range" is nonsensical for a printer's nozzle ceiling
+  // or a module's current draw, since no material is being measured at all.
+  const temp = checkClaim('Nozzle temperature 700\u00b0C');
+  assert.equal(temp.length, 1);
+  assert.match(temp[0].note, /no product in this category/i);
+  assert.doesNotMatch(temp[0].note, /no material/i);
+
+  const current = checkClaim('Current draw: 5000 mA');
+  assert.equal(current.length, 1);
+  assert.match(current[0].note, /no product in this category/i);
+
+  // A genuine physical-law bound must keep saying "no material", unaffected by the change above.
+  const modulus = checkClaim('Young\u2019s modulus 2435 GPa');
+  assert.match(modulus[0].note, /no material lies outside/i);
+});
+
 test('temperatures in Fahrenheit are converted before the range check', () => {
   // 450 F is 232 C, inside the nozzle range; 1100 F is 593 C, outside it. The
   // earlier version returned early because Fahrenheit had no multiplicative scale,
